@@ -168,6 +168,7 @@ func SetupRouter(cfg *config.Config, tmplFS embed.FS, staticFS embed.FS, version
 		protected.POST("/api/files/zip", fileHandler.Compress)
 		protected.POST("/api/files/unzip", fileHandler.Decompress)
 		protected.POST("/api/files/mkdir", fileHandler.CreateDir)
+		protected.POST("/api/files/fix-permissions", fileHandler.FixPermissions)
 
 	settingsHandler := &handlers.SettingsHandler{}
 	protected.GET("/api/settings", settingsHandler.GetSettings)

@@ -41,9 +41,10 @@
             </div>
             <div class="flex items-center space-x-3">
                 <button @click="showMkdir = true" :disabled="!selectedSite" class="btn-secondary text-sm">新建目录</button>
+                <button @click="fixPermissions()" :disabled="!selectedSite || selectedSite == '0' || fixingPerms" class="btn-secondary text-sm" x-text="fixingPerms ? '修复中...' : '修复权限'"></button>
                 <form @submit.prevent="uploadFile" class="flex items-center space-x-3">
-                    <input type="file" @change="fileSelected($event)" class="input-field w-64 text-sm">
-                    <button type="submit" class="btn-primary text-sm" :disabled="!uploadTarget">上传</button>
+                    <input type="file" @change="fileSelected($event)" :disabled="uploading" class="input-field w-64 text-sm">
+                    <button type="submit" class="btn-primary text-sm" :disabled="!uploadTarget || uploading" x-text="uploading ? '上传中 ' + uploadProgress + '%' : '上传'"></button>
                 </form>
             </div>
         </div>
@@ -150,6 +151,9 @@ function fileManager() {
             return this.sortDir === 'asc' ? '▲' : '▼';
         },
         uploadTarget: null,
+        uploading: false,
+        uploadProgress: 0,
+        fixingPerms: false,
         showMkdir: false,
         mkdirName: '',
         showRename: false,
@@ -212,12 +216,59 @@ function fileManager() {
             const name = this.uploadTarget.name;
             const exists = this.files.some(f => !f.is_dir && f.name === name);
             if (exists && !await confirmModal(name + ' 已存在，确认覆盖？')) return;
-            const fd = new FormData();
-            fd.append('file', this.uploadTarget);
+
+            return new Promise((resolve) => {
+                const prefix = document.body.dataset.panelPrefix || '';
+                const url = prefix + '/api/files/upload?site_id=' + this.selectedSite + '&path=' + encodeURIComponent(this.currentPath);
+                const fd = new FormData();
+                fd.append('file', this.uploadTarget);
+
+                const xhr = new XMLHttpRequest();
+                this.uploading = true;
+                this.uploadProgress = 0;
+
+                xhr.upload.addEventListener('progress', (e) => {
+                    if (e.lengthComputable) {
+                        this.uploadProgress = Math.round(e.loaded / e.total * 100);
+                    }
+                });
+
+                xhr.addEventListener('load', () => {
+                    this.uploading = false;
+                    try {
+                        const r = JSON.parse(xhr.responseText);
+                        if (r.success) {
+                            this.uploadTarget = null;
+                            document.querySelector('input[type="file"]').value = '';
+                            this.loadFiles();
+                            showToast('上传成功', 'success');
+                        } else {
+                            showToast(r.data?.message || '上传失败', 'error');
+                        }
+                    } catch(e) { showToast('上传失败', 'error'); }
+                    resolve();
+                });
+
+                xhr.addEventListener('error', () => {
+                    this.uploading = false;
+                    showToast('上传失败', 'error');
+                    resolve();
+                });
+
+                xhr.open('POST', url);
+                xhr.setRequestHeader('X-CSRF-Token', document.querySelector('meta[name="csrf-token"]')?.content || '');
+                xhr.send(fd);
+            });
+        },
+        async fixPermissions() {
+            if (!await confirmModal('确认修复 ' + (this.sites.find(s => s.id == this.selectedSite)?.domain || '') + ' 的文件权限？\n\n目录将设为 755，文件将设为 644，所有者为系统用户:www-data')) return;
+            this.fixingPerms = true;
             try {
-                const r = await api('/files/upload?site_id=' + this.selectedSite + '&path=' + encodeURIComponent(this.currentPath), { method: 'POST', body: fd, headers: {} });
-                if (r.success) { this.uploadTarget = null; this.loadFiles(); showToast('上传成功', 'success'); }
+                const r = await api('/files/fix-permissions?site_id=' + this.selectedSite, { method: 'POST' });
+                if (r.success) showToast(r.data?.message || '权限修复完成', 'success');
+                else showToast(r.data?.message || '操作失败', 'error');
             } catch(e) { showToast(e.message, 'error'); }
+            this.fixingPerms = false;
         },
         downloadFile(name) {
             const prefix = document.body.dataset.panelPrefix || '';

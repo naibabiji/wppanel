@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -123,6 +124,7 @@ func (h *FileHandler) Upload(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse("上传失败: "+err.Error()))
 		return
 	}
+	os.Chmod(destPath, 0644)
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"message": "文件上传成功"}))
 }
@@ -729,6 +731,49 @@ func (h *FileHandler) CreateDir(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"message": "目录创建成功"}))
+}
+
+func (h *FileHandler) FixPermissions(c *gin.Context) {
+	siteIDStr := c.Query("site_id")
+	siteID, err := strconv.Atoi(siteIDStr)
+	if err != nil || siteID == 0 {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("无效的网站ID"))
+		return
+	}
+
+	site := getWebsiteByID(siteID)
+	if site == nil {
+		c.JSON(http.StatusNotFound, models.ErrorResponse("网站不存在"))
+		return
+	}
+
+	webRoot := site.WebRoot
+	var dirCount, fileCount int
+	err = filepath.Walk(webRoot, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if info.IsDir() {
+			os.Chmod(path, 0755)
+			dirCount++
+		} else {
+			os.Chmod(path, 0644)
+			fileCount++
+		}
+		return nil
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("权限修复失败: "+err.Error()))
+		return
+	}
+
+	exec.Command("chown", "-R", site.SystemUser+":www-data", webRoot).Run()
+
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
+		"message":    fmt.Sprintf("权限修复完成，目录 %d 个，文件 %d 个", dirCount, fileCount),
+		"dir_count":  dirCount,
+		"file_count": fileCount,
+	}))
 }
 
 func isDirEmpty(path string) (bool, error) {
