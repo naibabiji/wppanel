@@ -40,11 +40,13 @@
                    class="fixed lg:static inset-y-0 left-0 z-40 w-64 bg-gray-950 border-r border-gray-800 flex flex-col transition-transform duration-200"
                    :class="sidebarOpen ? 'translate-x-0' : '-translate-x-full'">
                 <div class="p-4 border-b border-gray-800">
-                    <h1 class="text-lg font-bold text-white flex items-center gap-2">
-                        <img src="{{.AssetPrefix}}/logo.png" alt="WP Panel" class="w-6 h-6 rounded">
-                        {{.PanelTitle}}
-                    </h1>
-                    <p class="text-xs text-gray-500 mt-1">WordPress 服务器管理</p>
+                    <div class="flex items-center gap-3">
+                        <img src="{{.AssetPrefix}}/logo.png" alt="WP Panel" class="w-10 h-10 rounded-lg flex-shrink-0">
+                        <div class="min-w-0">
+                            <h1 class="text-base font-bold text-white truncate">{{.PanelTitle}}</h1>
+                            <p class="text-xs text-gray-500">WordPress 服务器管理</p>
+                        </div>
+                    </div>
                 </div>
                 <nav class="flex-1 p-3 space-y-1 overflow-y-auto">
                     <a href="/{{$.RandomSuffix}}/" class="sidebar-link {{if eq .Active "dashboard"}}active{{end}}">
