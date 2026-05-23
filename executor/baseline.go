@@ -10,6 +10,7 @@ import (
 func EnsureWordPressBaseline() {
 	ensurePHPBaseline()
 	ensureNginxBaseline()
+	ensureNginxSSLDefaultServer()
 	ensureMariaDBBaseline()
 	ensureRedisBaseline()
 }
@@ -38,6 +39,29 @@ func ensureNginxBaseline() {
 	}
 	content := `# WP Panel — WordPress 安全基线 (安装时自动生成)
 client_max_body_size 64m;
+`
+	os.WriteFile(path, []byte(content), 0644)
+}
+
+func ensureNginxSSLDefaultServer() {
+	path := "/etc/nginx/conf.d/wppanel-ssl-default.conf"
+	if _, err := os.Stat(path); err == nil {
+		return
+	}
+	content := `# WP Panel — 默认 SSL 服务器，拒绝未知域名的 TLS 握手，防止证书跨站泄露
+server {
+    listen 443 ssl default_server;
+    listen [::]:443 ssl default_server;
+    http2 on;
+    ssl_reject_handshake on;
+}
+
+# WP Panel — 默认 HTTP 服务器，拒绝未配置域名的请求
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    return 444;
+}
 `
 	os.WriteFile(path, []byte(content), 0644)
 	exec.Command("nginx", "-s", "reload").Run()
