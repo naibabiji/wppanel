@@ -54,16 +54,20 @@ apt-get update && apt-get install -y wget ca-certificates && wget -qO- https://r
 ## 为什么选择这些技术方案
 
 **为什么是 Debian 13？**
+
 Debian 是服务器领域稳定性最高的发行版之一。Trixie（Debian 13）在面板开发启动时是最新稳定版，拥有最新内核、较新的软件包版本，同时保持 Debian 一贯的保守稳定策略。选择这个版本意味着面板可以享受长周期的安全更新支持，用户无需频繁升级系统。
 
 **为什么锁定 PHP 8.3？**
+
 WordPress 官方推荐 PHP 8.3 或更高版本。8.3 在 WordPress 生态中经过了最广泛的生产环境验证，拥有活跃支持周期，性能与安全性持续改进。固定版本意味着所有用户运行相同的 PHP 环境，问题可复现、可排查，避免因 PHP 版本差异导致的兼容性怪病。
 
 **为什么是 MariaDB 而非 MySQL？**
+
 WordPress 官方推荐 MariaDB 10.6 或更高版本。Debian 12/13 自带的 MariaDB 均满足此要求。Oracle MySQL 存在许可证和功能限制风险，MariaDB 是完全兼容的 GPL 分支，由社区驱动。
 Oracle MySQL 存在许可证和功能限制风险。MariaDB 是 MySQL 的 GPL 分支，完全兼容且由社区驱动。Debian 源自带的 MariaDB LTS 版本提供到 2028 年的安全更新，无需添加第三方仓库。
 
 **为什么是自己编的 Go 二进制，不用 Docker/PM2？**
+
 单一二进制文件，0 依赖，`systemd` 守护。占用十几 MB 内存，适合 1G 小 VPS。不与 Nginx 共用端口，各自独立提供 HTTPS。没有容器层，没有运行时开销。
 
 ## 运行组件
