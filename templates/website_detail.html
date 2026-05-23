@@ -61,13 +61,14 @@
                 <div><dt class="text-sm text-gray-400">用户名</dt><dd class="text-white font-mono text-sm" x-text="site.db_user"></dd></div>
             </dl>
             <button @click="dbPasswordModal = true" class="text-sm py-1.5 px-3 rounded" style="background-color: #1e3a5f; color: #93c5fd;">修改密码</button>
+            <button @click="clearDatabase()" :disabled="dbSubmitting" class="text-sm py-1.5 px-3 rounded ml-2" style="background-color: #7f1d1d; color: #fca5a5;" x-text="dbSubmitting ? '清空中...' : '清空数据库'"></button>
 
             <hr class="my-4 border-gray-700">
 
             <div class="flex items-center space-x-3 mb-3">
                 <button @click="createBackup()" :disabled="backupSubmitting" class="btn-primary text-sm" x-text="backupSubmitting ? '备份中...' : '手动备份'"></button>
                 <button @click="uploadRestore()" :disabled="restoreUploading" class="btn-secondary text-sm" x-text="restoreUploading ? '恢复中...' : '上传恢复'"></button>
-                <input type="file" id="restoreFileInput" @change="handleRestoreUpload($event)" accept=".sql.gz,.gz" class="hidden">
+                <input type="file" id="restoreFileInput" @change="handleRestoreUpload($event)" accept=".sql,.sql.gz,.gz,.zip" class="hidden">
             </div>
 
             <div class="flex items-center space-x-3 mb-3 p-2 rounded" style="background-color: #0f172a;">
@@ -428,6 +429,19 @@ function websiteDetail() {
             } catch(e) { showToast('操作失败: ' + e.message, 'error'); }
             this.dbSubmitting = false;
         },
+        async clearDatabase() {
+            if (!await confirmModal('确认清空数据库「' + this.site.db_name + '」？此操作将删除所有表，不可撤销！')) return;
+            this.dbSubmitting = true;
+            try {
+                const r = await api('/websites/' + this.site.id + '/backups/clear-database', { method: 'POST' });
+                if (r.success) {
+                    showToast(r.data?.message || '数据库已清空', 'success');
+                } else {
+                    showToast(r.data?.message || '操作失败', 'error');
+                }
+            } catch(e) { showToast('操作失败: ' + e.message, 'error'); }
+            this.dbSubmitting = false;
+        },
         async fetchNginxCustom() {
             try {
                 const r = await api('/websites/' + this.site.id + '/nginx-custom');
@@ -534,8 +548,9 @@ function websiteDetail() {
         async handleRestoreUpload(e) {
             const file = e.target.files[0];
             if (!file) return;
-            if (!file.name.endsWith(".sql.gz") && !file.name.endsWith(".gz")) {
-                showToast("仅支持 .sql.gz 格式", "error"); return;
+            const validExts = [".sql", ".sql.gz", ".gz", ".zip"];
+            if (!validExts.some(ext => file.name.endsWith(ext))) {
+                showToast("仅支持 .sql / .sql.gz / .zip 格式", "error"); return;
             }
             if (!await confirmModal("将用 " + file.name + " 覆盖当前数据库，确认恢复？")) { e.target.value = ""; return; }
             this.restoreUploading = true;

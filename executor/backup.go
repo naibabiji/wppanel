@@ -1,6 +1,7 @@
 package executor
 
 import (
+	"archive/zip"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -78,8 +79,22 @@ func executeRestoreBackup(task *Task) TaskResult {
 		filePath = filepath.Join(backupDir, payload.Filename)
 	}
 
+	ext := strings.ToLower(filepath.Ext(filePath))
+	if ext == ".gz" {
+		return restoreFromGz(filePath, site.DBName, dbPass)
+	}
+	if ext == ".sql" {
+		return restoreFromSql(filePath, site.DBName, dbPass)
+	}
+	if ext == ".zip" {
+		return restoreFromZip(filePath, site.DBName, dbPass)
+	}
+	return TaskResult{Success: false, Message: "不支持的备份文件格式"}
+}
+
+func restoreFromGz(filePath, dbName, dbPass string) TaskResult {
 	gunzip := exec.Command("gunzip", "-c", filePath)
-	mysql := exec.Command("mysql", "-u", "root", site.DBName)
+	mysql := exec.Command("mysql", "-u", "root", dbName)
 	mysql.Env = append(os.Environ(), "MYSQL_PWD="+dbPass)
 	mysql.Stdin, _ = gunzip.StdoutPipe()
 	if err := mysql.Start(); err != nil {
@@ -91,7 +106,56 @@ func executeRestoreBackup(task *Task) TaskResult {
 	if err := mysql.Wait(); err != nil {
 		return TaskResult{Success: false, Message: fmt.Sprintf("恢复失败: mysql %v", err)}
 	}
+	return TaskResult{Success: true, Message: "数据库恢复成功"}
+}
 
+func restoreFromSql(filePath, dbName, dbPass string) TaskResult {
+	cmd := exec.Command("mysql", "-u", "root", dbName)
+	cmd.Env = append(os.Environ(), "MYSQL_PWD="+dbPass)
+	f, err := os.Open(filePath)
+	if err != nil {
+		return TaskResult{Success: false, Message: fmt.Sprintf("读取文件失败: %v", err)}
+	}
+	defer f.Close()
+	cmd.Stdin = f
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return TaskResult{Success: false, Message: fmt.Sprintf("恢复失败: %s", string(out))}
+	}
+	return TaskResult{Success: true, Message: "数据库恢复成功"}
+}
+
+func restoreFromZip(filePath, dbName, dbPass string) TaskResult {
+	r, err := zip.OpenReader(filePath)
+	if err != nil {
+		return TaskResult{Success: false, Message: fmt.Sprintf("解压 zip 失败: %v", err)}
+	}
+	defer r.Close()
+
+	var sqlFile *zip.File
+	for _, f := range r.File {
+		if !f.FileInfo().IsDir() && strings.HasSuffix(strings.ToLower(f.Name), ".sql") {
+			sqlFile = f
+			break
+		}
+	}
+	if sqlFile == nil {
+		return TaskResult{Success: false, Message: "zip 文件中未找到 .sql 文件"}
+	}
+
+	rc, err := sqlFile.Open()
+	if err != nil {
+		return TaskResult{Success: false, Message: fmt.Sprintf("读取 zip 内文件失败: %v", err)}
+	}
+	defer rc.Close()
+
+	cmd := exec.Command("mysql", "-u", "root", dbName)
+	cmd.Env = append(os.Environ(), "MYSQL_PWD="+dbPass)
+	cmd.Stdin = rc
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return TaskResult{Success: false, Message: fmt.Sprintf("恢复失败: %s", string(out))}
+	}
 	return TaskResult{Success: true, Message: "数据库恢复成功"}
 }
 

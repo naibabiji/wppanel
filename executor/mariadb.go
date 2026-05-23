@@ -75,6 +75,17 @@ func executeChangeDBPassword(task *Task) TaskResult {
 		return TaskResult{Success: false, Message: err.Error()}
 	}
 
+	if site.SiteType == "php" {
+		db := database.GetDB()
+		db.Exec("UPDATE websites SET updated_at = CURRENT_TIMESTAMP WHERE id = ?", site.ID)
+		masked := maskPassword(newPassword)
+		return TaskResult{
+			Success: true,
+			Message: "数据库密码已更新",
+			Data:    map[string]interface{}{"new_password": masked},
+		}
+	}
+
 	configPath := filepath.Join(site.WebRoot, "wp-config.php")
 	content, err := os.ReadFile(configPath)
 	if err != nil {

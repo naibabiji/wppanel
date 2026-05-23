@@ -1,8 +1,11 @@
 package handlers
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 
@@ -143,8 +146,9 @@ func (h *BackupHandler) UploadRestore(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse("请选择备份文件"))
 		return
 	}
-	if filepath.Ext(file.Filename) != ".gz" {
-		c.JSON(http.StatusBadRequest, models.ErrorResponse("仅支持 .sql.gz 格式"))
+	ext := filepath.Ext(file.Filename)
+	if ext != ".gz" && ext != ".sql" && ext != ".zip" {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("仅支持 .sql / .sql.gz / .zip 格式"))
 		return
 	}
 
@@ -200,4 +204,56 @@ func (h *BackupHandler) UpdateSettings(c *gin.Context) {
 		ON CONFLICT(site_id) DO UPDATE SET enabled = ?, keep_count = ?`,
 		id, enabledVal, req.KeepCount, enabledVal, req.KeepCount)
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"message": "设置已保存"}))
+}
+
+func (h *BackupHandler) ClearDatabase(c *gin.Context) {
+	id, _ := strconv.Atoi(c.Param("id"))
+	site := getWebsiteByID(id)
+	if site == nil {
+		c.JSON(http.StatusNotFound, models.ErrorResponse("网站不存在"))
+		return
+	}
+
+	dbPass := readMariaDBPassword()
+	if dbPass == "" {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("无法读取数据库密码"))
+		return
+	}
+
+	cmd := exec.Command("mysql", "-u", "root", "-p"+dbPass, "-B", "-N", "-e",
+		fmt.Sprintf("SELECT CONCAT('DROP TABLE IF EXISTS `', TABLE_NAME, '`;') FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = '%s' AND TABLE_TYPE = 'BASE TABLE'", site.DBName))
+	dropSQL, err := cmd.CombinedOutput()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(fmt.Sprintf("获取表列表失败: %s", string(dropSQL))))
+		return
+	}
+
+	mysqlCmd := exec.Command("mysql", "-u", "root", "-p"+dbPass, site.DBName)
+	stdin, _ := mysqlCmd.StdinPipe()
+	mysqlCmd.Start()
+	fmt.Fprintf(stdin, "SET FOREIGN_KEY_CHECKS = 0;\n%s\nSET FOREIGN_KEY_CHECKS = 1;\n", string(dropSQL))
+	stdin.Close()
+	out, err := mysqlCmd.CombinedOutput()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse(fmt.Sprintf("清空数据库失败: %s", string(out))))
+		return
+	}
+
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"message": "数据库已清空"}))
+}
+
+func readMariaDBPassword() string {
+	data, err := os.ReadFile("/www/server/panel/config.json")
+	if err != nil {
+		return ""
+	}
+	var cfg struct {
+		MariaDB struct {
+			RootPassword string `json:"root_password"`
+		} `json:"mariadb"`
+	}
+	if err := json.Unmarshal(data, &cfg); err != nil || cfg.MariaDB.RootPassword == "" {
+		return ""
+	}
+	return cfg.MariaDB.RootPassword
 }
