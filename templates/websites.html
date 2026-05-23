@@ -1,0 +1,125 @@
+{{template "base" .}}
+{{define "websites_content"}}
+<div x-data="websiteList()" x-init="fetchList()">
+    <div class="flex items-center justify-between mb-6">
+        <h2 class="text-xl font-bold text-white">网站管理</h2>
+        <a href="/{{.RandomSuffix}}/websites/new" class="btn-primary">创建网站</a>
+    </div>
+
+    <div class="card">
+        <div class="overflow-x-auto">
+            <table class="w-full">
+                <thead class="border-b border-gray-700">
+                    <tr>
+                        <th class="table-header">域名</th>
+                        <th class="table-header">状态</th>
+                        <th class="table-header">SSL</th>
+                        <th class="table-header">监控</th>
+                        <th class="table-header">缓存</th>
+                        <th class="table-header">日志</th>
+                        <th class="table-header">备份</th>
+                        <th class="table-header">创建时间</th>
+                        <th class="table-header">到期时间</th>
+                        <th class="table-header">操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <template x-for="site in websites" :key="site.id">
+                        <tr class="border-b border-gray-700/50">
+                            <td class="table-cell font-medium">
+                                <a :href="'http://' + site.domain" target="_blank" class="text-blue-400 hover:text-blue-300 hover:underline" x-text="site.domain"></a>
+                            </td>
+                            <td class="table-cell">
+                                <span :class="site.status === 'active' ? 'badge-success' : 'badge-warning'"
+                                      x-text="site.status === 'active' ? '运行中' : '已暂停'"></span>
+                            </td>
+                            <td class="table-cell">
+                                <span :class="site.ssl_enabled ? 'badge-success' : 'badge-info'"
+                                      x-text="site.ssl_enabled ? '已启用' : '未启用'"></span>
+                            </td>
+                            <td class="table-cell">
+                                <span :class="site.monitoring_enabled ? 'badge-success' : 'badge-info'"
+                                      x-text="site.monitoring_enabled ? '已开启' : '未开启'"></span>
+                            </td>
+                            <td class="table-cell">
+                                <span :class="site.fastcgi_cache_enabled ? 'badge-success' : 'badge-info'"
+                                      x-text="site.fastcgi_cache_enabled ? '已开启' : '未开启'"></span>
+                            </td>
+                            <td class="table-cell">
+                                <span :class="site.access_log_mode === 'full' ? 'badge-success' : site.access_log_mode === 'error_only' ? 'badge-warning' : 'badge-info'"
+                                      x-text="site.access_log_mode === 'full' ? '全部' : site.access_log_mode === 'error_only' ? '仅异常' : '关闭'"></span>
+                            </td>
+                            <td class="table-cell">
+                                <span :class="site.backup_enabled ? 'badge-success' : 'badge-info'"
+                                      x-text="site.backup_enabled ? '已启用' : '未启用'"></span>
+                            </td>
+                            <td class="table-cell" x-text="new Date(site.created_at).toLocaleDateString('zh-CN')"></td>
+                            <td class="table-cell text-xs" x-text="site.expires_at ? new Date(site.expires_at).toLocaleDateString('zh-CN') : '永不到期'"></td>
+                            <td class="table-cell">
+                                <div class="flex space-x-2">
+                                    <a :href="'/{{$.RandomSuffix}}/websites/' + site.id" class="btn-secondary text-xs py-1 px-2">详情</a>
+                                    <button @click="toggleStatus(site)" class="text-xs py-1 px-2 rounded"
+                                            :class="site.status === 'active' ? 'btn-warning bg-yellow-700 hover:bg-yellow-600 text-white' : 'btn-success text-xs'"
+                                            x-text="site.status === 'active' ? '暂停' : '启用'"></button>
+                                    <button @click="reinstallWP(site)" :disabled="reinstallingId === site.id" class="text-xs py-1 px-2 rounded" style="background-color: #7f1d1d; color: #fca5a5;" x-text="reinstallingId === site.id ? '重装中...' : '重装'"></button>
+                                    <button @click="deleteSite(site)" class="btn-danger text-xs py-1 px-2">删除</button>
+                                </div>
+                            </td>
+                        </tr>
+                    </template>
+                    <tr x-show="websites.length === 0">
+                        <td colspan="10" class="table-cell text-center text-gray-500 py-8">暂无网站</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+function websiteList() {
+    return {
+        websites: [],
+        reinstallingId: null,
+        async fetchList() {
+            try {
+                const resp = await api('/websites');
+                if (resp.success) this.websites = resp.data || [];
+            } catch (e) { showToast(e.message, 'error'); }
+        },
+        async toggleStatus(site) {
+            const action = site.status === 'active' ? 'pause' : 'enable';
+            try {
+                const resp = await api('/websites/' + site.id + '/status', { method: 'PATCH', body: { action } });
+                if (resp.success) {
+                    site.status = action === 'pause' ? 'paused' : 'active';
+                    showToast(resp.message || '操作成功', 'success');
+                }
+            } catch (e) { showToast(e.message, 'error'); }
+        },
+        async reinstallWP(site) {
+            if (!await confirmModal('确认重装 ' + site.domain + ' 的 WordPress？\n\n⚠ 此操作将删除所有网站文件、清空数据库并重新部署全新 WordPress，所有数据将不可恢复。请确认已备份重要数据。')) return;
+            this.reinstallingId = site.id;
+            showToast('正在重装 ' + site.domain + '，请稍候...', 'info');
+            try {
+                const resp = await api('/websites/' + site.id + '/reinstall-wp', { method: 'POST' });
+                if (resp.success) {
+                    showToast(resp.data?.message || 'WordPress 重装完成', 'success');
+                }
+            } catch (e) { showToast(e.message, 'error'); }
+            this.reinstallingId = null;
+        },
+        async deleteSite(site) {
+            if (!await confirmModal('确认删除网站 ' + site.domain + '？此操作不可逆。')) return;
+            try {
+                const resp = await api('/websites/' + site.id, { method: 'DELETE' });
+                if (resp.success) {
+                    this.websites = this.websites.filter(s => s.id !== site.id);
+                    showToast('网站已删除', 'success');
+                }
+            } catch (e) { showToast(e.message, 'error'); }
+        }
+    }
+}
+</script>
+{{end}}

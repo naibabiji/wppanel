@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{.CSRFToken}}">
+    <title>登录 - {{.PanelTitle}}</title>
+    <link rel="stylesheet" href="{{.AssetPrefix}}/css/main.css">
+    <script defer src="{{.AssetPrefix}}/js/alpine.min.js"></script>
+    <script src="{{.AssetPrefix}}/js/app.js"></script>
+</head>
+<body class="bg-gray-900 text-gray-100 min-h-screen" data-panel-prefix="/{{.RandomSuffix}}">
+    <div class="min-h-screen flex items-center justify-center" x-data="loginForm()">
+        <div class="card max-w-md w-full">
+            <div class="text-center mb-8">
+                <div class="w-16 h-16 bg-blue-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                              d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+                    </svg>
+                </div>
+                <h2 class="text-2xl font-bold text-white">WP Panel</h2>
+                <p class="text-gray-400 mt-2">请输入管理员密码完成登录</p>
+            </div>
+
+            <form @submit.prevent="login" x-show="!loading">
+                <div class="mb-4">
+                    <label class="label">用户名</label>
+                    <input type="text" x-model="username" class="input-field" placeholder="admin" autocomplete="username">
+                </div>
+                <div class="mb-6">
+                    <label class="label">密码</label>
+                    <input type="password" x-model="password" class="input-field" placeholder="请输入密码" autocomplete="current-password">
+                </div>
+
+                <div x-show="error" class="mb-4 p-3 bg-red-900/50 border border-red-700 rounded-lg text-red-300 text-sm"
+                     x-text="error"></div>
+
+                <button type="submit" class="btn-primary w-full" :disabled="!username || !password">
+                    登录
+                </button>
+            </form>
+
+            <div x-show="loading && !success" class="text-center py-4">
+                <div class="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full mx-auto"></div>
+                <p class="text-gray-400 mt-2">正在验证...</p>
+            </div>
+
+            <div x-show="success" class="text-center py-8">
+                <div class="w-12 h-12 bg-green-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                    </svg>
+                </div>
+                <p class="text-green-400 font-medium mb-6">验证通过</p>
+                <div class="p-5 rounded-lg mx-auto max-w-sm" style="background-color: #0f172a; border: 1px solid #334155;">
+                    <p class="text-gray-300 text-sm leading-relaxed italic" x-text="quote"></p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    const quotes = [
+        "千里之行，始于足下。\n—— 老子",
+        "工欲善其事，必先利其器。\n—— 《论语》",
+        "不积跬步，无以至千里。\n—— 荀子",
+        "学而不思则罔，思而不学则殆。\n—— 孔子",
+        "天下难事，必作于易；天下大事，必作于细。\n—— 老子",
+        "业精于勤，荒于嬉；行成于思，毁于随。\n—— 韩愈",
+        "知之为知之，不知为不知，是知也。\n—— 孔子",
+        "路漫漫其修远兮，吾将上下而求索。\n—— 屈原",
+        "博学之，审问之，慎思之，明辨之，笃行之。\n—— 《中庸》",
+        "纸上得来终觉浅，绝知此事要躬行。\n—— 陆游",
+        "锲而不舍，金石可镂。\n—— 荀子",
+        "三人行，必有我师焉。\n—— 孔子",
+        "欲速则不达，见小利则大事不成。\n—— 《论语》",
+        "君子坦荡荡，小人长戚戚。\n—— 孔子",
+        "天行健，君子以自强不息。\n—— 《周易》",
+        "大道至简，实干为要。",
+        "代码是写给人看的，顺便能在机器上运行。\n—— Harold Abelson",
+        "简单是可靠的先决条件。\n—— Edsger Dijkstra",
+        "任何傻瓜都能写出计算机能理解的代码，优秀的程序员写出人能理解的代码。\n—— Martin Fowler",
+        "先让它能工作，再让它正确，最后让它快。\n—— Kent Beck",
+    ];
+
+    function loginForm() {
+        return {
+            username: '',
+            password: '',
+            loading: false,
+            success: false,
+            quote: '',
+            error: '',
+            async login() {
+                this.loading = true;
+                this.error = '';
+                try {
+                    const resp = await api('/auth/login', {
+                        method: 'POST',
+                        body: { username: this.username, password: this.password }
+                    });
+                    if (resp.success) {
+                        this.success = true;
+                        this.quote = quotes[Math.floor(Math.random() * quotes.length)];
+                        setTimeout(() => {
+                            window.location.href = '/' + document.body.dataset.panelPrefix.replace('/', '') + '/';
+                        }, 1800);
+                    } else {
+                        this.error = resp.message || '登录失败';
+                        this.loading = false;
+                    }
+                } catch (e) {
+                    this.error = e.message || '网络错误';
+                    this.loading = false;
+                }
+            }
+        }
+    }
+    </script>
+</body>
+</html>

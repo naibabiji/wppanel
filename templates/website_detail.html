@@ -1,0 +1,602 @@
+{{template "base" .}}
+{{define "websites_detail_content"}}
+<div x-data="websiteDetail()" x-init="fetchDetail()">
+
+    <div class="flex items-center justify-between mb-6">
+        <h2 class="text-xl font-bold text-white">网站详情</h2>
+        <a href="/{{.RandomSuffix}}/websites" class="btn-secondary">返回列表</a>
+    </div>
+
+    <div x-show="loading" class="text-center py-8">
+        <div class="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full mx-auto"></div>
+    </div>
+<template x-if="site">
+    <div>
+
+    <!-- Row 1: 基本信息 | 网站监控 -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+        <div class="card">
+            <h3 class="text-lg font-semibold text-white mb-4">基本信息</h3>
+            <dl class="space-y-3">
+                <div><dt class="text-sm text-gray-400">域名</dt><dd class="text-white" x-text="site.domain"></dd></div>
+                <div><dt class="text-sm text-gray-400">别名</dt><dd class="text-white" x-text="site.aliases || '无'"></dd></div>
+                <div class="pt-2">
+                    <button @click="domainModalOpen = true; editDomain = site.domain; editAliasesStr = site.aliases || ''" class="text-sm py-1.5 px-3 rounded" style="background-color: #1e3a5f; color: #93c5fd;">编辑域名</button>
+                </div>
+                <div><dt class="text-sm text-gray-400">状态</dt><dd><span :class="site.status === 'active' ? 'badge-success' : 'badge-warning'" x-text="site.status === 'active' ? '运行中' : '已暂停'"></span></dd></div>
+                <div><dt class="text-sm text-gray-400">系统用户</dt><dd class="text-white font-mono" x-text="site.system_user"></dd></div>
+                <div><dt class="text-sm text-gray-400">网站根目录</dt><dd class="text-white font-mono text-sm" x-text="site.web_root"></dd></div>
+                <div><dt class="text-sm text-gray-400">日志目录</dt><dd class="text-white font-mono text-sm" x-text="site.log_dir"></dd></div>
+            </dl>
+        </div>
+
+        <div class="card">
+            <h3 class="text-lg font-semibold text-white mb-4">网站监控</h3>
+            <label class="flex items-center space-x-2 text-sm text-gray-300 cursor-pointer mb-3">
+                <input type="checkbox" x-model="monitoringEnabled">
+                <span>启用网站监控</span>
+            </label>
+            <div x-show="monitoringEnabled" class="flex items-center space-x-2 mb-4">
+                <span class="text-xs text-gray-500">检测间隔</span>
+                <select x-model="monitoringInterval" class="input-field w-24 text-sm py-1">
+                    <option value="1">1 分钟</option>
+                    <option value="5">5 分钟</option>
+                    <option value="10">10 分钟</option>
+                    <option value="30">30 分钟</option>
+                </select>
+            </div>
+            <button @click="saveMonitoring()" :disabled="monitoringSaving" class="btn-primary text-sm" x-text="monitoringSaving ? '保存中...' : '保存设置'"></button>
+            <p x-show="monitoringEnabled" class="text-xs text-gray-500 mt-3">定期检测网站 HTTP 状态码，异常时通过告警通知发送邮件。需先在「告警通知」页面配置 SMTP。</p>
+            <p x-show="!monitoringEnabled" class="text-xs text-gray-600 mt-3">开启后可定期检测网站是否可访问，异常时邮件通知。</p>
+        </div>
+    </div>
+
+    <!-- Row 2: 数据库与备份 | SSL 证书管理 -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mt-6">
+        <div class="card">
+            <h3 class="text-lg font-semibold text-white mb-4">数据库</h3>
+            <dl class="space-y-3 mb-4">
+                <div><dt class="text-sm text-gray-400">数据库名</dt><dd class="text-white font-mono text-sm" x-text="site.db_name"></dd></div>
+                <div><dt class="text-sm text-gray-400">用户名</dt><dd class="text-white font-mono text-sm" x-text="site.db_user"></dd></div>
+            </dl>
+            <button @click="dbPasswordModal = true" class="text-sm py-1.5 px-3 rounded" style="background-color: #1e3a5f; color: #93c5fd;">修改密码</button>
+
+            <hr class="my-4 border-gray-700">
+
+            <div class="flex items-center space-x-3 mb-3">
+                <button @click="createBackup()" :disabled="backupSubmitting" class="btn-primary text-sm" x-text="backupSubmitting ? '备份中...' : '手动备份'"></button>
+                <button @click="uploadRestore()" :disabled="restoreUploading" class="btn-secondary text-sm" x-text="restoreUploading ? '恢复中...' : '上传恢复'"></button>
+                <input type="file" id="restoreFileInput" @change="handleRestoreUpload($event)" accept=".sql.gz,.gz" class="hidden">
+            </div>
+
+            <div class="flex items-center space-x-3 mb-3 p-2 rounded" style="background-color: #0f172a;">
+                <label class="flex items-center space-x-2 text-sm text-gray-300 cursor-pointer">
+                    <input type="checkbox" x-model="backupEnabled" @change="saveBackupSettings()">
+                    <span>自动备份（每天 4:00）</span>
+                </label>
+                <label class="flex items-center space-x-2 text-sm text-gray-300 ml-4">
+                    <span>保留</span>
+                    <input type="number" x-model="backupKeepCount" @change="saveBackupSettings()" class="input-field w-16 text-sm py-0.5 text-center" min="1" max="30">
+                    <span>份</span>
+                </label>
+            </div>
+
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead class="border-b border-gray-700 text-gray-400">
+                        <tr>
+                            <th class="py-2 text-left">文件名</th>
+                            <th class="py-2 text-left">大小</th>
+                            <th class="py-2 text-left">时间</th>
+                            <th class="py-2 text-left">类型</th>
+                            <th class="py-2 text-left w-36">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <template x-for="b in backups" :key="b.id">
+                            <tr class="border-b border-gray-700/50">
+                                <td class="py-2 font-mono text-xs" x-text="b.filename"></td>
+                                <td class="py-2 text-xs" x-text="formatBytes(b.file_size)"></td>
+                                <td class="py-2 text-xs" x-text="new Date(b.created_at).toLocaleString('zh-CN')"></td>
+                                <td class="py-2"><span :class="b.auto ? 'badge-info' : 'badge-success'" class="text-xs" x-text="b.auto ? '自动' : '手动'"></span></td>
+                                <td class="py-2">
+                                    <div class="flex space-x-2">
+                                        <button @click="downloadBackup(b)" class="btn-primary text-xs py-1 px-2">下载</button>
+                                        <button @click="restoreBackup(b)" :disabled="restoringId" class="text-xs py-1 px-2 rounded" style="background-color: #7f1d1d; color: #fca5a5;" x-text="restoringId === b.id ? '恢复中...' : '恢复'"></button>
+                                        <button @click="deleteBackup(b)" :disabled="restoringId" class="btn-secondary text-xs py-1 px-2">删除</button>
+                                    </div>
+                                </td>
+                            </tr>
+                        </template>
+                        <tr x-show="backups.length === 0">
+                            <td colspan="5" class="py-4 text-center text-gray-500">暂无备份记录</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3 class="text-lg font-semibold text-white mb-4">SSL 证书管理</h3>
+            <div class="mb-3">
+                <span :class="site.ssl_enabled ? 'badge-success' : 'badge-info'" class="text-sm" x-text="site.ssl_enabled ? '已启用' : '未启用'"></span>
+            </div>
+            <div x-show="site.ssl_enabled">
+                <dl class="space-y-3 mb-4">
+                    <div><dt class="text-sm text-gray-400">证书路径</dt><dd class="text-white font-mono text-sm" x-text="site.ssl_cert_path"></dd></div>
+                    <div><dt class="text-sm text-gray-400">私钥路径</dt><dd class="text-white font-mono text-sm" x-text="site.ssl_key_path"></dd></div>
+                    <div><dt class="text-sm text-gray-400">到期时间</dt><dd class="text-white" x-text="site.ssl_expires_at ? new Date(site.ssl_expires_at).toLocaleDateString('zh-CN') : '未知'"></dd></div>
+                </dl>
+                <div class="flex space-x-3">
+                    <button @click="sslMode='auto'; sslModalOpen=true" class="text-sm py-1.5 px-3 rounded" style="background-color: #166534; color: #bbf7d0;">重新申请</button>
+                    <button @click="sslMode='manual'; sslCert=''; sslKey=''; sslModalOpen=true" class="text-sm py-1.5 px-3 rounded" style="background-color: #1e3a5f; color: #93c5fd;">替换证书</button>
+                    <button @click="removeSSL()" class="text-sm py-1.5 px-3 rounded" style="background-color: #7f1d1d; color: #fca5a5;">删除证书</button>
+                </div>
+            </div>
+            <div x-show="!site.ssl_enabled">
+                <p class="text-gray-400 mb-4">该网站尚未启用 SSL 证书</p>
+                <button @click="sslMode='auto'; sslModalOpen=true" class="btn-primary">启用 SSL</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Row 3: Nginx 自定义配置 | FastCGI 缓存 -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mt-6">
+        <div class="card">
+            <h3 class="text-lg font-semibold text-white mb-4">Nginx 自定义配置</h3>
+            <p class="text-gray-500 text-xs mb-3">添加 WordPress 插件所需的 Nginx 规则。面板安全规则不受影响，语法错误会自动拒绝保存。</p>
+            <div class="mb-3">
+                <label class="block text-sm text-gray-300 mb-1">Server 级配置（pre.conf — client_max_body_size 等指令）</label>
+                <textarea x-model="nginxPreContent" rows="3" class="w-full rounded p-2 text-xs font-mono" style="background-color: #0f172a; border: 1px solid #334155; color: #e2e8f0; resize: vertical;" placeholder="# 示例：client_max_body_size 128m;"></textarea>
+            </div>
+            <div class="mb-4">
+                <label class="block text-sm text-gray-300 mb-1">Location 级配置（.conf — 插件 rewrite、缓存规则等）</label>
+                <textarea x-model="nginxContent" rows="6" class="w-full rounded p-2 text-xs font-mono" style="background-color: #0f172a; border: 1px solid #334155; color: #e2e8f0; resize: vertical;" placeholder="# W3 Total Cache 或 WP Rocket 的 Nginx 规则粘贴到此处"></textarea>
+            </div>
+            <div class="flex space-x-3">
+                <button @click="saveNginxCustom()" :disabled="nginxSubmitting" class="btn-primary text-sm" x-text="nginxSubmitting ? '校验中...' : '保存并生效'"></button>
+                <button @click="fetchNginxCustom()" class="text-sm py-1.5 px-3 rounded" style="background-color: #1e293b; border: 1px solid #334155; color: #e2e8f0;">刷新</button>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3 class="text-lg font-semibold text-white mb-4">FastCGI 缓存</h3>
+            <div class="flex items-center space-x-3 mb-3">
+                <label class="flex items-center space-x-2 text-sm text-gray-300 cursor-pointer">
+                    <input type="checkbox" x-model="fcacheEnabled" @change="saveFCache()">
+                    <span>开启缓存</span>
+                </label>
+            </div>
+            <div x-show="fcacheEnabled" class="mb-3">
+                <label class="text-sm text-gray-300 mb-1 block">缓存有效期（秒）</label>
+                <input type="number" x-model="fcacheTTL" @change="saveFCache()" class="input-field w-32 text-sm py-1" min="10" max="86400">
+            </div>
+            <div x-show="fcacheEnabled" class="flex items-center space-x-3 mb-3">
+                <button @click="clearFCache()" class="text-sm py-1.5 px-3 rounded" style="background-color: #7f1d1d; color: #fca5a5;">清除缓存</button>
+                <button x-show="pluginStatus === 'not_installed'" @click="installPlugin()" :disabled="pluginInstalling" class="btn-primary text-sm py-1.5" x-text="pluginInstalling ? '安装中...' : '安装配套插件'"></button>
+                <button x-show="pluginStatus === 'update_available'" @click="installPlugin()" :disabled="pluginInstalling" class="text-sm py-1.5 px-3 rounded" style="background-color: #166534; color: #bbf7d0;" x-text="pluginInstalling ? '更新中...' : '更新配套插件'"></button>
+                <span x-show="pluginStatus === 'installed'" class="text-xs text-green-400">✓ 插件已安装</span>
+            </div>
+            <div class="mt-3 p-3 rounded text-xs" style="background-color: #0f172a;">
+                <p class="text-gray-300 font-medium mb-2">工作原理</p>
+                <ul class="text-gray-400 space-y-1 list-disc list-inside">
+                    <li>Nginx 将 PHP 页面输出为静态 HTML 缓存在磁盘，访客直接拿到 HTML 无需经过 PHP/MariaDB</li>
+                    <li>每站点独立缓存版本密钥，点击「清除缓存」更换密钥，旧缓存文件 60 分钟后自动删除</li>
+                    <li>已登录用户、POST 请求、wp-admin 后台自动跳过缓存</li>
+                </ul>
+                <p class="text-gray-500 mt-2">配套插件（wp-panel-cache-helper）安装到网站后，网站管理员可自行在 WordPress 后台清除缓存和控制 TTL，无需面板权限。不要安装第三方缓存插件（WP Rocket / W3 Total Cache 等的 Nginx 模式），会与本卡片冲突。</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Row 4: 网站日志 -->
+    <div class="mt-6">
+        <div class="card">
+            <h3 class="text-lg font-semibold text-white mb-4">网站日志</h3>
+            <div class="flex items-center space-x-3 mb-3">
+                <button @click="logType='access'; fetchLogs()" :class="logType === 'access' ? 'text-white border-b-2 border-blue-400' : 'text-gray-400 hover:text-white'" class="px-3 py-1 text-sm font-medium">访问日志</button>
+                <button @click="logType='error'; fetchLogs()" :class="logType === 'error' ? 'text-white border-b-2 border-blue-400' : 'text-gray-400 hover:text-white'" class="px-3 py-1 text-sm font-medium">错误日志</button>
+                <button @click="fetchLogs()" class="text-sm py-1 px-3 rounded text-gray-400 hover:text-white" style="background-color: #1e293b; border: 1px solid #334155;">刷新</button>
+                <button @click="clearLogs()" class="text-sm py-1 px-3 rounded" style="background-color: #7f1d1d; color: #fca5a5;">清空</button>
+                <select @change="setAccessLogMode($event.target.value)" x-model="accessLogMode" x-show="logType === 'access'" class="input-field w-28 text-sm py-1">
+                    <option value="off">关闭日志</option>
+                    <option value="error_only">仅异常</option>
+                    <option value="full">全部记录</option>
+                </select>
+            </div>
+            <pre x-text="logContent" class="w-full rounded p-3 text-xs font-mono overflow-auto" style="background-color: #0f172a; border: 1px solid #334155; color: #94a3b8; max-height: 400px; white-space: pre-wrap; word-break: break-all;"></pre>
+        </div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- Modals -->
+    <!-- ============================================================ -->
+
+    <!-- 修改数据库密码 -->
+    <div x-show="dbPasswordModal" class="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50" @click.self="dbPasswordModal = false">
+        <div class="rounded-lg shadow-xl w-full max-w-md p-6" style="background-color: #1e293b; border: 1px solid #334155;">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-lg font-semibold text-white">修改数据库密码</h3>
+                <button @click="dbPasswordModal = false" class="text-gray-400 hover:text-white text-xl">&times;</button>
+            </div>
+            <p class="text-gray-400 text-sm mb-3">数据库 <span class="text-white font-mono" x-text="site.db_name"></span> / 用户 <span class="text-white font-mono" x-text="site.db_user"></span></p>
+            <div class="mb-4">
+                <label class="block text-sm text-gray-300 mb-1">新密码（留空则随机生成）</label>
+                <input type="text" x-model="newDBPassword" class="w-full rounded p-2 text-sm font-mono" style="background-color: #0f172a; border: 1px solid #334155; color: #e2e8f0;" placeholder="留空自动生成24位随机密码">
+            </div>
+            <p class="text-gray-500 text-xs mb-4">修改后会自动更新 wp-config.php 中的密码，无需手动修改。</p>
+            <div class="flex justify-end space-x-3">
+                <button @click="dbPasswordModal = false" class="btn-secondary">取消</button>
+                <button @click="changeDBPassword()" :disabled="dbSubmitting" class="btn-primary" x-text="dbSubmitting ? '处理中...' : '确认修改'"></button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 编辑域名 -->
+    <div x-show="domainModalOpen" class="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50" @click.self="domainModalOpen = false">
+        <div class="rounded-lg shadow-xl w-full max-w-md p-6" style="background-color: #1e293b; border: 1px solid #334155;">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-lg font-semibold text-white">编辑域名</h3>
+                <button @click="domainModalOpen = false" class="text-gray-400 hover:text-white text-xl">&times;</button>
+            </div>
+            <div class="mb-3">
+                <label class="block text-sm text-gray-300 mb-1">主域名</label>
+                <input type="text" x-model="editDomain" class="w-full rounded p-2 text-sm font-mono" style="background-color: #0f172a; border: 1px solid #334155; color: #e2e8f0;">
+            </div>
+            <div class="mb-3">
+                <label class="block text-sm text-gray-300 mb-1">别名（一行一个，不含主域名）</label>
+                <textarea x-model="editAliasesStr" rows="4" class="w-full rounded p-2 text-sm font-mono" style="background-color: #0f172a; border: 1px solid #334155; color: #e2e8f0; resize: vertical;" placeholder="www.aaa.com&#10;blog.aaa.com"></textarea>
+            </div>
+            <div x-show="editDomain !== site.domain" class="mb-3 p-3 rounded text-sm" style="background-color: #422006; border: 1px solid #78350f; color: #fbbf24;">
+                主域名变更后将重命名网站目录、日志目录、Nginx配置、PHP-FPM Pool及SSL证书目录。系统用户（<span x-text="site.system_user" class="font-mono"></span>）和数据库名保持不变。WordPress 站点 URL 需自行在 WP 后台修改。
+            </div>
+            <p x-show="site.ssl_enabled" class="text-yellow-400 text-xs mb-3">修改域名后需重新申请 SSL 证书以匹配新域名。</p>
+            <div class="flex justify-end space-x-3">
+                <button @click="domainModalOpen = false" class="btn-secondary">取消</button>
+                <button @click="updateDomains()" :disabled="domainSubmitting" class="btn-primary" x-text="domainSubmitting ? '处理中...' : '保存'"></button>
+            </div>
+        </div>
+    </div>
+
+    <!-- SSL 证书 -->
+    <div x-show="sslModalOpen" class="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50" @click.self="sslModalOpen = false">
+        <div class="rounded-lg shadow-xl w-full max-w-2xl p-6" style="background-color: #1e293b; border: 1px solid #334155;">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-lg font-semibold text-white">
+                    <span x-show="!site.ssl_enabled">为 <span x-text="site.domain"></span> 启用 SSL</span>
+                    <span x-show="site.ssl_enabled && sslMode === 'auto'">为 <span x-text="site.domain"></span> 重新申请证书</span>
+                    <span x-show="site.ssl_enabled && sslMode === 'manual'">为 <span x-text="site.domain"></span> 替换证书</span>
+                </h3>
+                <button @click="sslModalOpen = false" class="text-gray-400 hover:text-white text-xl">&times;</button>
+            </div>
+
+            <div class="flex border-b border-gray-600 mb-4">
+                <button @click="sslMode = 'auto'" :class="sslMode === 'auto' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-gray-400 hover:text-white'" class="px-4 py-2 text-sm font-medium">自动申请免费证书</button>
+                <button @click="sslMode = 'manual'" :class="sslMode === 'manual' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-gray-400 hover:text-white'" class="px-4 py-2 text-sm font-medium">手动填入证书</button>
+            </div>
+
+            <div x-show="sslMode === 'auto'">
+                <p class="text-gray-400 text-sm mb-4">将通过 Let's Encrypt 自动申请免费 SSL 证书。请确保域名已正确解析到本服务器。</p>
+            </div>
+
+            <div x-show="sslMode === 'manual'">
+                <div class="mb-4">
+                    <label class="block text-sm text-gray-300 mb-1">证书内容（fullchain.pem）</label>
+                    <textarea x-model="sslCert" rows="6" class="w-full rounded p-3 text-sm font-mono" style="background-color: #0f172a; border: 1px solid #334155; color: #e2e8f0; resize: vertical;" placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"></textarea>
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm text-gray-300 mb-1">私钥内容（privkey.pem）</label>
+                    <textarea x-model="sslKey" rows="6" class="w-full rounded p-3 text-sm font-mono" style="background-color: #0f172a; border: 1px solid #334155; color: #e2e8f0; resize: vertical;" placeholder="-----BEGIN PRIVATE KEY-----&#10;...&#10;-----END PRIVATE KEY-----"></textarea>
+                </div>
+            </div>
+
+            <div class="flex justify-end space-x-3 mt-4">
+                <button @click="sslModalOpen = false" class="btn-secondary">取消</button>
+                <button @click="enableSSL()" :disabled="sslSubmitting" class="btn-primary" x-text="sslSubmitting ? '处理中...' : '确认'"></button>
+            </div>
+        </div>
+    </div>
+    </div>
+</template>
+</div>
+
+<script>
+function websiteDetail() {
+    return {
+        site: null,
+        loading: true,
+        sslModalOpen: false,
+        sslMode: 'auto',
+        sslCert: '',
+        sslKey: '',
+        sslSubmitting: false,
+        dbPasswordModal: false,
+        newDBPassword: '',
+        dbSubmitting: false,
+        backups: [],
+        backupSubmitting: false,
+        backupEnabled: false,
+        backupKeepCount: 7,
+        restoringId: null,
+        restoreUploading: false,
+        logType: 'access',
+        logContent: '',
+        nginxPreContent: '',
+        nginxContent: '',
+        nginxSubmitting: false,
+        fcacheEnabled: false,
+        fcacheTTL: 300,
+        pluginStatus: 'not_installed',
+        pluginInstalling: false,
+        monitoringEnabled: false,
+        monitoringInterval: 5,
+        monitoringSaving: false,
+        accessLogEnabled: false,
+        accessLogMode: 'off',
+        domainModalOpen: false,
+        editDomain: '',
+        editAliasesStr: '',
+        domainSubmitting: false,
+        async fetchDetail() {
+            const id = window.location.pathname.split('/').pop();
+            try {
+                const r = await api('/websites/' + id);
+                if (r.success) {
+                    this.site = r.data;
+                    this.fcacheEnabled = r.data.fastcgi_cache_enabled;
+                    this.fcacheTTL = r.data.fastcgi_cache_ttl || 300;
+                    this.monitoringEnabled = r.data.monitoring_enabled || false;
+                    this.monitoringInterval = r.data.monitoring_interval || 5;
+                }
+            } catch(e) { showToast('加载失败: ' + e.message, 'error'); }
+            this.loading = false;
+            this.fetchNginxCustom();
+            this.fetchPluginStatus();
+            this.fetchLogs();
+            this.fetchBackups();
+            this.fetchBackupSettings();
+        },
+        async enableSSL() {
+            if (this.sslMode === 'manual' && (!this.sslCert || !this.sslKey)) {
+                showToast('请填写证书内容和私钥', 'error');
+                return;
+            }
+            this.sslSubmitting = true;
+            try {
+                const body = { mode: this.sslMode };
+                if (this.sslMode === 'manual') {
+                    body.certificate = this.sslCert;
+                    body.private_key = this.sslKey;
+                }
+                const r = await api('/websites/' + this.site.id + '/ssl', { method: 'POST', body });
+                if (r.success) {
+                    showToast(r.data?.message || '操作成功', 'success');
+                    this.sslModalOpen = false;
+                    await this.fetchDetail();
+                } else {
+                    showToast(r.data?.message || '操作失败', 'error');
+                }
+            } catch(e) { showToast('操作失败: ' + e.message, 'error'); }
+            this.sslSubmitting = false;
+        },
+        async updateDomains() {
+            this.domainSubmitting = true;
+            try {
+                const newDomain = this.editDomain.trim();
+                if (!newDomain) { showToast('域名不能为空', 'error'); this.domainSubmitting = false; return; }
+                const aliases = this.editAliasesStr.split('\n').map(a => a.trim()).filter(a => a);
+                const body = { new_domain: newDomain, aliases };
+                const r = await api('/websites/' + this.site.id + '/domains', { method: 'PUT', body });
+                if (r.success) {
+                    showToast(r.data?.message || '已更新', 'success');
+                    this.domainModalOpen = false;
+                    await this.fetchDetail();
+                } else {
+                    showToast(r.data?.message || '操作失败', 'error');
+                }
+            } catch(e) { showToast('操作失败: ' + e.message, 'error'); }
+            this.domainSubmitting = false;
+        },
+        async removeSSL() {
+            if (!await confirmModal('确认删除 ' + this.site.domain + ' 的SSL证书？删除后将恢复为HTTP访问。')) return;
+            try {
+                const r = await api('/websites/' + this.site.id + '/ssl', { method: 'DELETE' });
+                if (r.success) {
+                    showToast(r.data?.message || '证书已删除', 'success');
+                    await this.fetchDetail();
+                } else {
+                    showToast(r.data?.message || '操作失败', 'error');
+                }
+            } catch(e) { showToast('操作失败: ' + e.message, 'error'); }
+        },
+        async changeDBPassword() {
+            this.dbSubmitting = true;
+            try {
+                const body = {};
+                if (this.newDBPassword) body.new_password = this.newDBPassword;
+                const r = await api('/websites/' + this.site.id + '/db-password', { method: 'PUT', body });
+                if (r.success) {
+                    showToast('密码已更新: ' + (r.data ? r.data.new_password : '****'), 'success');
+                    this.dbPasswordModal = false;
+                    this.newDBPassword = '';
+                } else {
+                    showToast(r.data?.message || '操作失败', 'error');
+                }
+            } catch(e) { showToast('操作失败: ' + e.message, 'error'); }
+            this.dbSubmitting = false;
+        },
+        async fetchNginxCustom() {
+            try {
+                const r = await api('/websites/' + this.site.id + '/nginx-custom');
+                if (r.success) {
+                    this.nginxPreContent = r.data.pre_content || '';
+                    this.nginxContent = r.data.content || '';
+                    this.accessLogEnabled = r.data.access_log_enabled || false;
+                    this.accessLogMode = r.data.access_log_mode || 'off';
+                }
+            } catch(e) { /* 静默失败 */ }
+        },
+        async saveNginxCustom() {
+            this.nginxSubmitting = true;
+            try {
+                const r = await api('/websites/' + this.site.id + '/nginx-custom', {
+                    method: 'PUT',
+                    body: { pre_content: this.nginxPreContent, content: this.nginxContent }
+                });
+                if (r.success) {
+                    showToast(r.data?.message || '已保存', 'success');
+                } else {
+                    showToast(r.data?.message || '保存失败', 'error');
+                }
+            } catch(e) { showToast('操作失败: ' + e.message, 'error'); }
+            this.nginxSubmitting = false;
+        },
+        async fetchLogs() {
+            if (!this.site) return;
+            try {
+                const r = await api('/websites/' + this.site.id + '/logs?type=' + this.logType);
+                if (r.success) {
+                    this.logContent = r.data.content;
+                }
+            } catch(e) { showToast('加载日志失败: ' + e.message, 'error'); }
+        },
+        async setAccessLogMode(mode) {
+            try {
+                const r = await api('/websites/' + this.site.id + '/access-log', { method: 'PUT', body: { mode } });
+                if (r.success) {
+                    this.accessLogMode = mode;
+                    this.accessLogEnabled = mode !== 'off';
+                    if (mode === 'off') {
+                        this.logContent = '';
+                    }
+                    showToast(r.data?.message, 'success');
+                } else {
+                    showToast(r.data?.message || '操作失败', 'error');
+                }
+            } catch(e) { showToast('操作失败: ' + e.message, 'error'); }
+        },
+        async clearLogs() {
+            if (!await confirmModal('确认清空 ' + (this.logType === 'error' ? '错误' : '访问') + '日志？')) return;
+            try {
+                const r = await api('/websites/' + this.site.id + '/logs?type=' + this.logType, { method: 'DELETE' });
+                if (r.success) {
+                    showToast('日志已清空', 'success');
+                    this.logContent = '（日志为空或文件不存在）';
+                }
+            } catch(e) { showToast('操作失败: ' + e.message, 'error'); }
+        },
+        async fetchBackups() {
+            try {
+                const r = await api("/websites/" + this.site.id + "/backups");
+                if (r.success) this.backups = r.data || [];
+            } catch(e) {}
+        },
+        async fetchBackupSettings() {
+            try {
+                const r = await api("/websites/" + this.site.id + "/backups/settings");
+                if (r.success) { this.backupEnabled = r.data.enabled; this.backupKeepCount = r.data.keep_count; }
+            } catch(e) {}
+        },
+        async createBackup() {
+            this.backupSubmitting = true;
+            try {
+                const r = await api("/websites/" + this.site.id + "/backups", { method: "POST" });
+                showToast(r.data?.message || "备份完成", "success");
+                await this.fetchBackups();
+            } catch(e) { showToast(e.message, "error"); }
+            this.backupSubmitting = false;
+        },
+        async downloadBackup(b) {
+            const prefix = document.body.dataset.panelPrefix || "";
+            window.open(prefix + "/api/websites/" + this.site.id + "/backups/" + b.id + "/download");
+        },
+        async restoreBackup(b) {
+            if (!await confirmModal("将用 " + b.filename + " 覆盖当前数据库，此操作不可撤销，确认恢复？")) return;
+            this.restoringId = b.id;
+            try {
+                const r = await api("/websites/" + this.site.id + "/backups/" + b.id + "/restore", { method: "POST" });
+                showToast(r.data?.message || "恢复成功", "success");
+            } catch(e) { showToast(e.message, "error"); }
+            this.restoringId = null;
+        },
+        async deleteBackup(b) {
+            if (!await confirmModal("确认删除备份 " + b.filename + "？")) return;
+            try {
+                await api("/websites/" + this.site.id + "/backups/" + b.id, { method: "DELETE" });
+                await this.fetchBackups();
+                showToast("已删除", "success");
+            } catch(e) { showToast(e.message, "error"); }
+        },
+        uploadRestore() { document.getElementById("restoreFileInput").click(); },
+        async handleRestoreUpload(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            if (!file.name.endsWith(".sql.gz") && !file.name.endsWith(".gz")) {
+                showToast("仅支持 .sql.gz 格式", "error"); return;
+            }
+            if (!await confirmModal("将用 " + file.name + " 覆盖当前数据库，确认恢复？")) { e.target.value = ""; return; }
+            this.restoreUploading = true;
+            const fd = new FormData();
+            fd.append("file", file);
+            try {
+                const r = await api("/websites/" + this.site.id + "/backups/upload-restore", { method: "POST", body: fd, headers: {} });
+                showToast(r.data?.message || "恢复成功", "success");
+                await this.fetchBackups();
+            } catch(e) { showToast(e.message, "error"); }
+            this.restoreUploading = false;
+            e.target.value = "";
+        },
+        async fetchPluginStatus() {
+            try {
+                const r = await api('/websites/' + this.site.id + '/install-plugin/status');
+                if (r.success) this.pluginStatus = r.data.status;
+            } catch(e) {}
+        },
+        async installPlugin() {
+            this.pluginInstalling = true;
+            try {
+                const r = await api('/websites/' + this.site.id + '/install-plugin', { method: 'POST' });
+                showToast(r.data?.message || '已安装', 'success');
+                await this.fetchPluginStatus();
+            } catch(e) { showToast(e.message, 'error'); }
+            this.pluginInstalling = false;
+        },
+        async saveMonitoring() {
+            this.monitoringSaving = true;
+            try {
+                await api('/websites/' + this.site.id + '/monitoring', {
+                    method: 'PUT',
+                    body: { enabled: this.monitoringEnabled, interval: parseInt(this.monitoringInterval) || 5 }
+                });
+                showToast('监控设置已保存', 'success');
+            } catch(e) { showToast('保存失败: ' + e.message, 'error'); }
+            this.monitoringSaving = false;
+        },
+        async saveFCache() {
+            try {
+                await api('/websites/' + this.site.id + '/cache', {
+                    method: 'PUT',
+                    body: { enabled: this.fcacheEnabled, ttl: parseInt(this.fcacheTTL) || 300 }
+                });
+                showToast(this.fcacheEnabled ? '已开启 FastCGI 缓存' : '已关闭 FastCGI 缓存', 'success');
+            } catch(e) { showToast(e.message, 'error'); }
+        },
+        async clearFCache() {
+            if (!await confirmModal('确认清除 FastCGI 缓存？')) return;
+            try {
+                await api('/websites/' + this.site.id + '/cache', { method: 'DELETE' });
+                showToast('缓存已清除', 'success');
+            } catch(e) { showToast(e.message, 'error'); }
+        },
+        async saveBackupSettings() {
+            try {
+                await api("/websites/" + this.site.id + "/backups/settings", {
+                    method: "PUT",
+                    body: { enabled: this.backupEnabled, keep_count: this.backupKeepCount }
+                });
+            } catch(e) { showToast(e.message, "error"); }
+        },
+    }
+}
+</script>
+{{end}}

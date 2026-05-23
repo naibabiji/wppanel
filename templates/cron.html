@@ -1,0 +1,261 @@
+{{template "base" .}}
+{{define "cron_content"}}
+<div x-data="cronManager()" x-init="fetchList()">
+    <div class="flex items-center justify-between mb-6">
+        <h2 class="text-xl font-bold text-white">计划任务</h2>
+        <div class="flex space-x-3">
+            <button @click="showLog = true; fetchCronLogs()" class="btn-secondary text-sm">查看日志</button>
+            <button @click="openCreate()" class="btn-primary">创建任务</button>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="overflow-x-auto">
+            <table class="w-full">
+                <thead class="border-b border-gray-700">
+                    <tr>
+                        <th class="table-header">任务名称</th>
+                        <th class="table-header">周期</th>
+                        <th class="table-header">类型</th>
+                        <th class="table-header">内容</th>
+                        <th class="table-header">状态</th>
+                        <th class="table-header">上次手动执行</th>
+                        <th class="table-header">操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <template x-for="job in jobs" :key="job.id">
+                        <tr class="border-b border-gray-700/50">
+                            <td class="table-cell font-medium" x-text="job.name"></td>
+                            <td class="table-cell font-mono text-xs" x-text="job.cron_expression"></td>
+                            <td class="table-cell text-xs" x-text="job.task_type === 'file_backup' ? '文件备份' : '自定义命令'"></td>
+                            <td class="table-cell font-mono text-xs max-w-[200px] truncate" x-text="job.task_type === 'file_backup' ? (job.backup_mode === 'full' ? '全站备份' : '智能增量') : job.command"></td>
+                            <td class="table-cell">
+                                <span :class="job.enabled ? 'badge-success' : 'badge-warning'"
+                                      x-text="job.enabled ? '启用' : '禁用'"></span>
+                            </td>
+                            <td class="table-cell text-xs text-gray-400" x-text="job.last_run_at || '--'"></td>
+                            <td class="table-cell">
+                                <div class="flex space-x-2">
+                                    <button @click="runJob(job)" class="btn-success text-xs py-1 px-2">执行</button>
+                                    <button @click="openEdit(job)" class="text-xs py-1 px-2 rounded" style="background-color: #1e3a5f; color: #93c5fd;">编辑</button>
+                                    <button @click="deleteJob(job)" class="btn-danger text-xs py-1 px-2">删除</button>
+                                </div>
+                            </td>
+                        </tr>
+                    </template>
+                    <tr x-show="jobs.length === 0">
+                        <td colspan="7" class="table-cell text-center text-gray-500 py-8">暂无任务</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="card mt-6" x-data="{ sysJobs: [] }" x-init="fetchSysCron()">
+        <h3 class="text-lg font-semibold text-white mb-4">系统任务 <span class="text-xs text-gray-500 font-normal">（只读）</span></h3>
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead class="border-b border-gray-700 text-gray-400">
+                    <tr>
+                        <th class="py-2 text-left">来源</th>
+                        <th class="py-2 text-left">周期</th>
+                        <th class="py-2 text-left">用户</th>
+                        <th class="py-2 text-left">命令</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <template x-for="(j, i) in sysJobs" :key="i">
+                        <tr class="border-b border-gray-700/50">
+                            <td class="py-2 text-xs font-mono text-gray-400" x-text="j.source"></td>
+                            <td class="py-2 font-mono text-xs" x-text="j.schedule"></td>
+                            <td class="py-2 text-xs" x-text="j.user || '—'"></td>
+                            <td class="py-2 font-mono text-xs text-gray-300 truncate" style="max-width:400px" x-text="j.command"></td>
+                        </tr>
+                    </template>
+                    <tr x-show="sysJobs.length === 0">
+                        <td colspan="4" class="py-4 text-center text-gray-500">暂无系统任务</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div x-show="showLog" class="modal-overlay" @click.self="showLog = false">
+        <div class="modal-content" style="max-width: 56rem;">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-lg font-bold text-white">Cron 执行日志</h3>
+                <button @click="showLog = false" class="text-gray-400 hover:text-white text-xl">&times;</button>
+            </div>
+            <pre x-text="cronLogContent" class="w-full rounded p-3 text-xs font-mono overflow-auto" style="background-color: #0f172a; border: 1px solid #334155; color: #94a3b8; max-height: 500px; white-space: pre-wrap; word-break: break-all;"></pre>
+        </div>
+    </div>
+
+    <div x-show="showModal" class="modal-overlay" @click.self="showModal = false">
+        <div class="modal-content">
+            <h3 class="text-lg font-bold text-white mb-4" x-text="editingId ? '编辑任务' : '创建任务'"></h3>
+            <form @submit.prevent="saveJob">
+                <div class="mb-3">
+                    <label class="label">任务名称</label>
+                    <input type="text" x-model="form.name" class="input-field" required>
+                </div>
+                <div class="mb-3">
+                    <label class="label">任务类型</label>
+                    <select x-model="form.task_type" class="input-field" @change="onTaskTypeChange">
+                        <option value="command">自定义命令</option>
+                        <option value="file_backup">备份网站文件</option>
+                        <option value="wp_cron">WP Cron 调用</option>
+                    </select>
+                </div>
+                <div x-show="form.task_type === 'wp_cron'" class="p-3 rounded mb-3" style="background-color: #0f172a;">
+                    <p class="text-xs text-gray-300 mb-3"><strong class="text-white">替代 WordPress 内置伪 Cron</strong> — WordPress 默认每次页面访问才触发计划任务（发布定时文章、检查更新等），不稳定且消耗性能。此任务通过系统 Cron 定时直接调用 wp-cron.php，更可靠。</p>
+                    <div class="mb-2">
+                        <label class="text-sm text-gray-300 mb-1 block">目标网站</label>
+                        <select x-model="form.site_id" class="input-field" @change="autoName('wp_cron')">
+                            <option value="">请选择网站</option>
+                            <template x-for="s in sites" :key="s.id">
+                                <option :value="s.id" x-text="s.domain"></option>
+                            </template>
+                        </select>
+                    </div>
+                    <p class="text-xs text-gray-500 mt-2">创建后将自动在 wp-config.php 中添加 <code>define('DISABLE_WP_CRON', true)</code>，禁用 WordPress 内置伪 Cron。删除此任务（且该网站无其他 WP Cron 任务）时将自动移除该配置。</p>
+                </div>
+                <div x-show="form.task_type === 'file_backup'" class="p-3 rounded mb-3" style="background-color: #0f172a;">
+                    <p class="text-xs text-gray-400 mb-3"><strong class="text-white">全量备份</strong>：打包整个网站根目录。首次运行或在详情页点击执行时运行。<br><strong class="text-white">智能增量</strong>：仅备份 wp-content/uploads/ 中自上次备份后新增或修改的文件。日常定时运行建议选择此模式。</p>
+                    <div class="mb-2">
+                        <label class="text-sm text-gray-300 mb-1 block">目标网站</label>
+                        <select x-model="form.site_id" class="input-field" @change="autoName('file_backup')">
+                            <option value="">请选择网站</option>
+                            <template x-for="s in sites" :key="s.id">
+                                <option :value="s.id" x-text="s.domain"></option>
+                            </template>
+                        </select>
+                    </div>
+                    <div class="mb-2">
+                        <label class="text-sm text-gray-300 mb-1 block">备份模式</label>
+                        <select x-model="form.backup_mode" class="input-field">
+                            <option value="incremental">智能增量（首次自动全量）</option>
+                            <option value="full">全站备份</option>
+                        </select>
+                    </div>
+                    <div class="mb-2">
+                        <label class="flex items-center space-x-2 text-sm text-gray-300 cursor-pointer">
+                            <input type="checkbox" x-model="form.notify_fail">
+                            <span>备份失败时邮件通知</span>
+                        </label>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label class="label">执行周期</label>
+                    <select x-model="form.cron_expression" class="input-field">
+                        <option value="">自定义 Cron 表达式</option>
+                        <option value="* * * * *">每分钟</option>
+                        <option value="*/5 * * * *">每5分钟</option>
+                        <option value="0 * * * *">每小时</option>
+                        <option value="0 2 * * *">每天凌晨2点</option>
+                        <option value="0 3 * * 0">每周日凌晨3点（每7天）</option>
+                        <option value="0 0 1,16 * *">每15天（1号、16号）</option>
+                        <option value="0 0 1 * *">每月1号（每30天）</option>
+                    </select>
+                    <input type="text" x-model="form.cron_expression" class="input-field mt-1" placeholder="或输入标准 Cron 表达式（分 时 日 月 周）">
+                </div>
+                <div x-show="form.task_type !== 'file_backup'" class="mb-3">
+                    <label class="label">执行命令</label>
+                    <textarea x-model="form.command" class="input-field" rows="3" placeholder="例如: wp cron event run --due-now --path=/www/wwwroot/xxx.com"></textarea>
+                </div>
+                <div class="flex justify-end space-x-3">
+                    <button type="button" @click="showModal = false" class="btn-secondary">取消</button>
+                    <button type="submit" class="btn-primary" x-text="editingId ? '保存' : '创建'"></button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+function cronManager() {
+    return {
+        jobs: [],
+        sites: [],
+        showModal: false,
+        showLog: false,
+        cronLogContent: '',
+        editingId: null,
+        form: { name: '', cron_expression: '', command: '', task_type: 'command', backup_mode: 'incremental', site_id: '', notify_fail: false },
+        async fetchSites() {
+            try { const r = await api("/websites"); if (r.success) this.sites = r.data || []; } catch(e) {}
+        },
+        autoName(prefix) {
+            if (this.form.name && this.form.name.trim()) return;
+            const site = this.sites.find(s => s.id == this.form.site_id);
+            if (site) this.form.name = '[' + prefix + '] ' + site.domain;
+        },
+        onTaskTypeChange() {
+            if ((this.form.task_type === "file_backup" || this.form.task_type === "wp_cron") && !this.sites.length) this.fetchSites();
+        },
+        async fetchList() {
+            try { const r = await api('/cron'); if (r.success) this.jobs = r.data || []; } catch(e) {}
+        },
+        openCreate() {
+            this.editingId = null;
+            this.form = { name: '', cron_expression: '', command: '', task_type: 'command', backup_mode: 'incremental', site_id: '', notify_fail: false };
+            this.showModal = true;
+        },
+        openEdit(job) {
+            this.editingId = job.id;
+            this.form = { name: job.name, cron_expression: job.cron_expression, command: job.command || '', task_type: job.task_type || 'command', backup_mode: job.backup_mode || 'incremental', site_id: job.site_id || '', notify_fail: !!job.notify_fail };
+            this.showModal = true;
+        },
+        async saveJob() {
+            try {
+                const body = { ...this.form };
+                if (body.site_id === "") body.site_id = null; else body.site_id = parseInt(body.site_id);
+                if (body.task_type === "file_backup") body.command = "wp-panel file backup";
+                if (body.task_type === "wp_cron") {
+                    const site = this.sites.find(s => s.id == body.site_id);
+                    if (!site) { showToast('请选择目标网站', 'error'); return; }
+                    body.command = site.domain;
+                }
+                let r;
+                if (this.editingId) {
+                    r = await api('/cron/' + this.editingId, { method: 'PUT', body });
+                } else {
+                    r = await api('/cron', { method: 'POST', body });
+                }
+                if (r.success) {
+                    this.showModal = false;
+                    this.form = { name: '', cron_expression: '', command: '', task_type: 'command', backup_mode: 'incremental', site_id: '', notify_fail: false };
+                    await this.fetchList();
+                    showToast(this.editingId ? '任务已更新' : '任务创建成功', 'success');
+                }
+            } catch(e) { showToast(e.message, 'error'); }
+        },
+        async runJob(job) {
+            try {
+                const r = await api('/cron/' + job.id + '/run', { method: 'POST' });
+                if (r.success) { await this.fetchList(); showToast(r.data?.message || '已执行', 'success'); }
+            } catch(e) { showToast(e.message, 'error'); }
+        },
+        async fetchCronLogs() {
+            try {
+                const r = await api('/cron/logs?lines=100');
+                this.cronLogContent = r.success ? r.data.content : '加载失败';
+            } catch(e) { this.cronLogContent = '加载失败: ' + e.message; }
+        },
+        async deleteJob(job) {
+            if (!await confirmModal('确认删除任务 ' + job.name + '？')) return;
+            try { await api('/cron/' + job.id, { method: 'DELETE' }); await this.fetchList(); showToast('已删除', 'success'); } catch(e) { showToast(e.message, 'error'); }
+        }
+    }
+}
+    window.fetchSysCron = async function() {
+        try {
+            const r = await api("/cron/system");
+            if (r.success) {
+                const el = document.querySelector("[x-data*=sysJobs]");
+                if (el && el._x_dataStack && el._x_dataStack[0]) el._x_dataStack[0].sysJobs = r.data || [];
+            }
+        } catch(e) {}
+    };
+</script>
+{{end}}

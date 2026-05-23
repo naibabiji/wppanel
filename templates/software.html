@@ -1,0 +1,319 @@
+{{template "base" .}}
+{{define "software_content"}}
+<div x-data="softwareManager()" x-init="fetchList()">
+    <div class="flex items-center justify-between mb-6">
+        <h2 class="text-xl font-bold text-white">软件管理</h2>
+        <button @click="showHelp = true" class="btn-secondary text-sm">WordPress 配置建议</button>
+    </div>
+
+    <div x-show="showHelp" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black/60" @click.self="showHelp = false">
+        <div class="bg-gray-800 rounded-lg p-6 w-full mx-4 shadow-xl max-h-[85vh] overflow-y-auto" style="max-width:900px">
+            <h3 class="text-lg font-bold text-white mb-4">WordPress 配置建议（按 VPS 配置分档）</h3>
+            <p class="text-xs text-gray-500 mb-4">以下为保守建议值，确保系统稳定不 OOM。可在软件管理中根据实际需求调大。</p>
+
+            <div class="overflow-x-auto">
+                <table class="w-full text-xs">
+                    <thead class="border-b border-gray-600 text-gray-300">
+                        <tr>
+                            <th class="py-2 text-left sticky left-0 bg-gray-800">VPS 配置</th>
+                            <th class="py-2 text-left">适用场景</th>
+                            <th class="py-2 text-left">PHP memory_limit</th>
+                            <th class="py-2 text-left">upload / post</th>
+                            <th class="py-2 text-left">max_input_vars</th>
+                            <th class="py-2 text-left">MariaDB pool</th>
+                            <th class="py-2 text-left">Redis maxmemory</th>
+                        </tr>
+                    </thead>
+                    <tbody class="text-gray-400">
+                        <tr class="border-b border-gray-700/50">
+                            <td class="py-2 text-white font-medium sticky left-0 bg-gray-800">1C 1G</td>
+                            <td class="py-2">1 个简单博客</td>
+                            <td class="py-2 text-green-400">128M</td>
+                            <td class="py-2">32M / 32M</td>
+                            <td class="py-2">1000</td>
+                            <td class="py-2">128M</td>
+                            <td class="py-2">64mb</td>
+                        </tr>
+                        <tr class="border-b border-gray-700/50">
+                            <td class="py-2 text-white font-medium sticky left-0 bg-gray-800">1C 1G</td>
+                            <td class="py-2">1 个多插件站</td>
+                            <td class="py-2 text-blue-400">256M</td>
+                            <td class="py-2">64M / 64M</td>
+                            <td class="py-2">2000</td>
+                            <td class="py-2">128M</td>
+                            <td class="py-2">64mb</td>
+                        </tr>
+
+                        <tr class="border-b border-gray-700/50">
+                            <td class="py-2 text-white font-medium sticky left-0 bg-gray-800">1C 2G</td>
+                            <td class="py-2">1 个电商/Elementor</td>
+                            <td class="py-2 text-blue-400">256M</td>
+                            <td class="py-2">64M / 64M</td>
+                            <td class="py-2">3000</td>
+                            <td class="py-2">256M</td>
+                            <td class="py-2">128mb</td>
+                        </tr>
+                        <tr class="border-b border-gray-700/50">
+                            <td class="py-2 text-white font-medium sticky left-0 bg-gray-800">1C 2G</td>
+                            <td class="py-2">2~3 个简单博客</td>
+                            <td class="py-2 text-blue-400">256M</td>
+                            <td class="py-2">64M / 64M</td>
+                            <td class="py-2">2000</td>
+                            <td class="py-2">256M</td>
+                            <td class="py-2">128mb</td>
+                        </tr>
+
+                        <tr class="border-b border-gray-700/50">
+                            <td class="py-2 text-white font-medium sticky left-0 bg-gray-800">2C 2G</td>
+                            <td class="py-2">1 个电商 + 2 个展示站</td>
+                            <td class="py-2 text-blue-400">256M</td>
+                            <td class="py-2">64M / 64M</td>
+                            <td class="py-2">3000</td>
+                            <td class="py-2">256M</td>
+                            <td class="py-2">128mb</td>
+                        </tr>
+
+                        <tr class="border-b border-gray-700/50">
+                            <td class="py-2 text-white font-medium sticky left-0 bg-gray-800">2C 4G</td>
+                            <td class="py-2">3~5 个站（含电商）</td>
+                            <td class="py-2 text-yellow-400">512M</td>
+                            <td class="py-2">128M / 128M</td>
+                            <td class="py-2">3000</td>
+                            <td class="py-2">512M</td>
+                            <td class="py-2">256mb</td>
+                        </tr>
+                        <tr class="border-b border-gray-700/50">
+                            <td class="py-2 text-white font-medium sticky left-0 bg-gray-800">2C 4G</td>
+                            <td class="py-2">5+ 个简单博客</td>
+                            <td class="py-2 text-blue-400">256M</td>
+                            <td class="py-2">64M / 64M</td>
+                            <td class="py-2">2000</td>
+                            <td class="py-2">512M</td>
+                            <td class="py-2">256mb</td>
+                        </tr>
+
+                        <tr class="border-b border-gray-700/50">
+                            <td class="py-2 text-white font-medium sticky left-0 bg-gray-800">2C 8G</td>
+                            <td class="py-2">多电商 / 高流量多站</td>
+                            <td class="py-2 text-yellow-400">512M</td>
+                            <td class="py-2">128M / 128M</td>
+                            <td class="py-2">3000</td>
+                            <td class="py-2">1G</td>
+                            <td class="py-2">512mb</td>
+                        </tr>
+
+                        <tr class="border-b border-gray-700/50">
+                            <td class="py-2 text-white font-medium sticky left-0 bg-gray-800">4C 8G</td>
+                            <td class="py-2">10+ 站 / 高并发</td>
+                            <td class="py-2 text-yellow-400">512M</td>
+                            <td class="py-2">128M / 128M</td>
+                            <td class="py-2">5000</td>
+                            <td class="py-2">1G</td>
+                            <td class="py-2">512mb</td>
+                        </tr>
+
+                        <tr class="border-b border-gray-700/50">
+                            <td class="py-2 text-white font-medium sticky left-0 bg-gray-800">4C 16G</td>
+                            <td class="py-2">大型多站点 / 高负载</td>
+                            <td class="py-2 text-yellow-400">512M</td>
+                            <td class="py-2">256M / 256M</td>
+                            <td class="py-2">5000</td>
+                            <td class="py-2">2G</td>
+                            <td class="py-2">1gb</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="mt-4 p-3 rounded text-xs" style="background-color: #0f172a;">
+                <p class="text-gray-300 font-medium mb-2">通用原则</p>
+                <ul class="text-gray-400 space-y-1 list-disc list-inside">
+                    <li>post_max_size 必须 ≥ upload_max_filesize，Nginx client_max_body_size 需保持一致</li>
+                    <li>max_execution_time 建议统一 300，导入数据或批量处理时临时调至 600</li>
+                    <li>MariaDB innodb_buffer_pool_size 为物理内存的 10%~25%（保守），MySQL 官方建议可到 50%~70%</li>
+                    <li>Redis maxmemory 每个站点约 64~128mb，多站按比例增加但不超过空闲内存的 50%</li>
+                    <li>单站点与多站点最大区别在 MariaDB pool 和 Redis，PHP 参数主要看站点复杂度</li>
+                </ul>
+            </div>
+
+            <div class="mt-5 text-right">
+                <button @click="showHelp = false" class="btn-primary text-sm">知道了</button>
+            </div>
+        </div>
+    </div>
+
+    <div x-data="processGuard()" x-init="fetch()" class="card mb-6">
+        <div class="flex items-center justify-between mb-3">
+            <h3 class="text-lg font-semibold text-white">进程守护</h3>
+            <span class="text-xs text-gray-500">每30秒自动检测</span>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead class="border-b border-gray-700 text-gray-400 text-xs">
+                    <tr>
+                        <th class="py-2 text-left font-medium">服务</th>
+                        <th class="py-2 text-left font-medium">版本</th>
+                        <th class="py-2 text-left font-medium">状态</th>
+                        <th class="py-2 text-right font-medium">操作</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-800">
+                    <template x-for="s in services" :key="s.name">
+                        <tr>
+                            <td class="py-2.5 pr-4">
+                                <div class="flex items-center gap-2">
+                                    <span class="text-white font-medium" x-text="s.name"></span>
+                                    <span x-show="s.restarts > 0" class="text-xs text-gray-500" x-text="'恢复'+s.restarts+'次'"></span>
+                                </div>
+                            </td>
+                            <td class="py-2.5 pr-4">
+                                <span class="text-xs text-gray-400" x-text="s.version"></span>
+                            </td>
+                            <td class="py-2.5 pr-4">
+                                <span x-show="s.running && !s.paused" class="text-green-400 text-xs">● 运行中</span>
+                                <span x-show="s.paused" class="text-yellow-400 text-xs">● 手动停止</span>
+                                <span x-show="!s.running && !s.paused" class="text-red-400 text-xs">● 已停止</span>
+                            </td>
+                            <td class="py-2.5 text-right whitespace-nowrap">
+                                <button x-show="s.running && !s.paused" @click="action(s.service, 'stop')" :disabled="s._acting" class="btn-secondary text-xs py-1 px-2.5">停止</button>
+                                <button x-show="!s.running || s.paused" @click="action(s.service, 'start')" :disabled="s._acting" class="btn-primary text-xs py-1 px-2.5">启动</button>
+                                <button @click="action(s.service, 'restart')" :disabled="s._acting" class="btn-secondary text-xs py-1 px-2.5 ml-1.5">重启</button>
+                            </td>
+                        </tr>
+                    </template>
+                </tbody>
+            </table>
+        </div>
+        <div class="mt-3 pt-3 border-t border-gray-800 text-xs text-gray-500">
+            systemd Restart=always 提供第一层守护，面板每30秒检测异常并自动拉起。手动停止后守护不再自动启动。
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+        <template x-for="sw in software" :key="sw.name">
+            <div class="card">
+                <div class="flex items-center justify-between mb-3">
+                    <div class="flex items-center space-x-3">
+                        <h3 class="text-lg font-semibold text-white" x-text="sw.name"></h3>
+                        <span class="text-sm text-blue-400" x-text="sw.version"></span>
+                    </div>
+                    <span class="text-xs text-gray-400" x-text="sw.status"></span>
+                </div>
+
+                <div class="space-y-3">
+                    <template x-for="cfg in sw.configs" :key="cfg.key">
+                        <div>
+                            <div class="flex items-center justify-between mb-1">
+                                <label class="text-xs text-gray-400" x-text="cfg.label"></label>
+                                <span class="text-xs text-gray-600" x-text="'当前: ' + cfg.value"></span>
+                            </div>
+                            <input type="text" x-model="cfg._value" class="input-field w-full text-sm py-1.5">
+                            <p class="text-xs text-gray-500 mt-0.5" x-text="cfg.hint"></p>
+                        </div>
+                    </template>
+                </div>
+
+                <div class="flex space-x-2 mt-4">
+                    <button @click="saveConfig(sw)" :disabled="sw._saving" class="btn-primary text-sm" x-text="sw._saving ? '保存并重载中...' : '保存并重载'"></button>
+                    <button @click="viewLog(sw.name)" class="btn-secondary text-sm">查看日志</button>
+                </div>
+            </div>
+        </template>
+    </div>
+
+    <div x-show="logModal.open" class="modal-overlay" @click.self="logModal.open = false">
+        <div class="modal-content" style="max-width: 56rem;">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-lg font-bold text-white" x-text="logModal.title + ' 日志'"></h3>
+                <div class="flex items-center space-x-3">
+                    <button @click="clearLog()" class="btn-danger text-xs py-1 px-2">清空日志</button>
+                    <button @click="logModal.open = false" class="text-gray-400 hover:text-white text-xl">&times;</button>
+                </div>
+            </div>
+            <pre x-text="logModal.content" class="w-full rounded p-3 text-xs font-mono overflow-auto" style="background-color: #0f172a; border: 1px solid #334155; color: #94a3b8; max-height: 500px; white-space: pre-wrap; word-break: break-all;"></pre>
+        </div>
+    </div>
+</div>
+
+<script>
+function processGuard() {
+    return {
+        services: [],
+        async fetch() {
+            try {
+                const r = await api('/software/guard');
+                if (r.success) {
+                    (r.data || []).forEach(s => s._acting = false);
+                    this.services = r.data || [];
+                }
+            } catch(e) {}
+            setTimeout(() => this.fetch(), 30000);
+        },
+        async action(service, act) {
+            const s = this.services.find(s => s.service === service);
+            if (!s) return;
+            s._acting = true;
+            try {
+                const r = await api('/software/guard/action', { method: 'POST', body: { service, action: act } });
+                showToast(r.data?.message || service + ' ' + act + ' 成功', 'success');
+                await this.fetch();
+            } catch(e) {
+                showToast(e.message, 'error');
+                s._acting = false;
+            }
+        }
+    }
+}
+
+function softwareManager() {
+    return {
+        software: [],
+        showHelp: false,
+        logModal: { open: false, title: '', content: '' },
+        async fetchList() {
+            try {
+                const r = await api('/software');
+                if (r.success) {
+                    this.software = (r.data || []).map(sw => {
+                        sw._saving = false;
+                        (sw.configs || []).forEach(cfg => { cfg._value = cfg.value; });
+                        return sw;
+                    });
+                }
+            } catch(e) {}
+        },
+        async viewLog(name) {
+            this.logModal.title = name;
+            this.logModal.content = '加载中...';
+            this.logModal.open = true;
+            try {
+                const r = await api('/software/log?name=' + encodeURIComponent(name) + '&lines=200');
+                this.logModal.content = r.success ? r.data.content : '加载失败';
+            } catch(e) { this.logModal.content = '加载失败: ' + e.message; }
+        },
+        async clearLog() {
+            if (!await confirmModal('确认清空 ' + this.logModal.title + '？')) return;
+            try {
+                const r = await api('/software/log?name=' + encodeURIComponent(this.logModal.title), { method: 'DELETE' });
+                if (r.success) {
+                    this.logModal.content = '（日志已清空）';
+                    showToast(r.data?.message || '已清空', 'success');
+                }
+            } catch(e) { showToast(e.message, 'error'); }
+        },
+        async saveConfig(sw) {
+            for (const cfg of sw.configs) {
+                if (cfg._value === cfg.value) continue;
+                sw._saving = true;
+                try {
+                    const r = await api('/software/config', { method: 'PUT', body: { name: sw.name, key: cfg.key, value: cfg._value } });
+                    cfg.value = cfg._value;
+                    showToast(r.data?.message || '已更新 ' + cfg.label, 'success');
+                } catch(e) { showToast(e.message, 'error'); }
+                sw._saving = false;
+            }
+        }
+    }
+}
+</script>
+{{end}}

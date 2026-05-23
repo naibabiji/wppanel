@@ -1,0 +1,129 @@
+{{template "base" .}}
+{{define "dashboard_content"}}
+<div>
+    <h2 class="text-xl font-bold text-white mb-6">控制台</h2>
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-6" x-data="dashboardStats()" x-init="fetchStats()">
+        <div class="card">
+            <p class="text-gray-400 text-sm">CPU 使用率</p>
+            <p class="text-3xl font-bold text-white mt-2" x-text="stats.cpu_percent?.toFixed(1) + '%'">--</p>
+        </div>
+        <div class="card">
+            <p class="text-gray-400 text-sm">内存使用率</p>
+            <p class="text-3xl font-bold text-white mt-2" x-text="stats.memory_percent?.toFixed(1) + '%'">--</p>
+            <p class="text-xs text-gray-500 mt-1" x-text="formatBytes(stats.memory_used_bytes) + ' / ' + formatBytes(stats.memory_total_bytes)"></p>
+        </div>
+        <div class="card">
+            <p class="text-gray-400 text-sm">磁盘使用率</p>
+            <p class="text-3xl font-bold text-white mt-2" x-text="stats.disk_total_bytes ? (stats.disk_used_bytes / stats.disk_total_bytes * 100).toFixed(1) + '%' : '--' ">--</p>
+            <p class="text-xs text-gray-500 mt-1" x-text="formatBytes(stats.disk_used_bytes) + ' / ' + formatBytes(stats.disk_total_bytes)"></p>
+        </div>
+        <div class="card">
+            <p class="text-gray-400 text-sm">系统负载</p>
+            <p class="text-3xl font-bold text-white mt-2" x-text="stats.load_avg_1?.toFixed(1)">--</p>
+            <p class="text-xs text-gray-500 mt-1" x-text="stats.load_avg_5?.toFixed(1) + ' / ' + stats.load_avg_15?.toFixed(1)"></p>
+        </div>
+        <div class="card">
+            <p class="text-gray-400 text-sm">运行时间</p>
+            <p class="text-3xl font-bold text-white mt-2" x-text="formatUptime(stats.uptime)">--</p>
+        </div>
+    </div>
+
+    <div class="card mb-6" x-data="{ range: '24h' }">
+        <div class="flex items-center justify-between mb-4">
+            <h3 class="text-lg font-semibold text-white">历史趋势</h3>
+            <div class="flex space-x-1">
+                <button @click="range='24h'; fetchMetrics('24h')" :class="range === '24h' ? 'btn-primary text-xs' : 'btn-secondary text-xs'" class="py-1 px-3">24小时</button>
+                <button @click="range='7d'; fetchMetrics('7d')" :class="range === '7d' ? 'btn-primary text-xs' : 'btn-secondary text-xs'" class="py-1 px-3">7天</button>
+                <button @click="range='15d'; fetchMetrics('15d')" :class="range === '15d' ? 'btn-primary text-xs' : 'btn-secondary text-xs'" class="py-1 px-3">15天</button>
+            </div>
+        </div>
+        <canvas id="metricsCanvas" class="w-full" height="80"></canvas>
+    </div>
+</div>
+
+<script>
+function dashboardStats() {
+    return {
+        stats: {},
+        async fetchStats() {
+            try {
+                const resp = await api('/dashboard/stats');
+                if (resp.success) this.stats = resp.data;
+            } catch (e) { console.error(e); }
+        }
+    }
+}
+
+// Chart.js — initialized outside Alpine to avoid proxy conflict
+(function() {
+    let chart = null;
+
+    async function fetchMetrics(range) {
+        try {
+            const resp = await api('/dashboard/metrics?range=' + (range || '24h'));
+            if (resp.success && chart) {
+                chart.data.labels = resp.data.labels || [];
+                chart.data.datasets[0].data = resp.data.cpu || [];
+                chart.data.datasets[1].data = resp.data.memory || [];
+                chart.data.datasets[2].data = resp.data.load || [];
+                chart.update('none');
+            }
+        } catch (e) { console.error(e); }
+    }
+
+    function initChart() {
+        const canvas = document.getElementById('metricsCanvas');
+        if (!canvas) return;
+        chart = new Chart(canvas.getContext('2d'), {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [
+                    { label: 'CPU %', borderColor: '#3b82f6', backgroundColor: '#3b82f6', data: [], tension: 0.3, pointRadius: 0, pointHoverRadius: 5 },
+                    { label: '内存 %', borderColor: '#22c55e', backgroundColor: '#22c55e', data: [], tension: 0.3, pointRadius: 0, pointHoverRadius: 5 },
+                    { label: '负载', borderColor: '#eab308', backgroundColor: '#eab308', data: [], tension: 0.3, pointRadius: 0, pointHoverRadius: 5 },
+                ]
+            },
+            options: {
+                responsive: true,
+                interaction: {
+                    mode: 'index',
+                    intersect: false,
+                },
+                scales: {
+                    x: {
+                        ticks: { color: '#9ca3af', maxTicksLimit: 12, maxRotation: 0 },
+                        grid: { color: '#374151' }
+                    },
+                    y: {
+                        ticks: { color: '#9ca3af' },
+                        grid: { color: '#374151' }
+                    }
+                },
+                plugins: {
+                    legend: { labels: { color: '#9ca3af' } },
+                    tooltip: {
+                        mode: 'index',
+                        intersect: false,
+                        callbacks: {
+                            title: function(items) {
+                                return '时间: ' + items[0].label;
+                            },
+                            label: function(item) {
+                                return item.dataset.label + ': ' + item.parsed.y.toFixed(2);
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        fetchMetrics('24h');
+    }
+
+    // Expose for Alpine button clicks
+    window.fetchMetrics = fetchMetrics;
+    // Canvas is already in DOM since script runs after template render
+    initChart();
+})();
+</script>
+{{end}}

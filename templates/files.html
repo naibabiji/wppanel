@@ -1,0 +1,351 @@
+{{template "base" .}}
+{{define "files_content"}}
+<div x-data="fileManager()" x-init="initSites()">
+    <h2 class="text-xl font-bold text-white mb-6">文件管理</h2>
+
+    <div x-show="selected.length > 0" class="flex items-center space-x-3 mb-3 p-3 bg-blue-900/30 rounded border border-blue-800">
+        <span class="text-sm text-gray-300" x-text="'已选 ' + selected.length + ' 项'"></span>
+        <button @click="batchCompress()" class="btn-secondary text-sm py-1">批量压缩</button>
+        <button @click="cutItems()" class="btn-secondary text-sm py-1">剪切</button>
+        <button @click="copyItems()" class="btn-secondary text-sm py-1">复制</button>
+        <button @click="batchDelete()" class="btn-danger text-sm py-1">批量删除</button>
+        <button @click="selected = []" class="text-sm text-gray-400 hover:text-white py-1">取消选择</button>
+    </div>
+
+    <div x-show="clipboard" class="flex items-center space-x-3 mb-3 p-3 bg-green-900/30 rounded border border-green-800">
+        <span class="text-sm text-gray-300" x-text="'剪贴板: ' + clipboard.names.length + ' 个项目 (' + (clipboard.action === 'cut' ? '剪切' : '复制') + ')'"></span>
+        <button @click="pasteItems()" class="btn-primary text-sm py-1">粘贴</button>
+        <button @click="clipboard = null" class="text-sm text-gray-400 hover:text-white py-1">清空</button>
+    </div>
+
+    <div class="card mb-4">
+        <div class="flex items-center space-x-4 mb-4">
+            <select x-model="selectedSite" @change="loadFiles()" class="input-field w-64" x-ref="siteSelect">
+                <option value="">选择网站...</option>
+                <template x-for="s in sites" :key="s.id">
+                    <option :value="s.id" x-text="s.domain"></option>
+                </template>
+                <option value="0">📦 备份目录</option>
+            </select>
+        </div>
+
+        <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center space-x-2 text-sm">
+                <template x-for="(seg, idx) in breadcrumbs()" :key="idx">
+                    <span>
+                        <span class="text-gray-500" x-show="idx > 0"> / </span>
+                        <span class="cursor-pointer hover:text-blue-400" :class="idx === breadcrumbs().length - 1 ? 'text-white' : 'text-gray-400'"
+                              @click="goToBreadcrumb(idx)" x-text="seg.label"></span>
+                    </span>
+                </template>
+            </div>
+            <div class="flex items-center space-x-3">
+                <button @click="showMkdir = true" :disabled="!selectedSite" class="btn-secondary text-sm">新建目录</button>
+                <form @submit.prevent="uploadFile" class="flex items-center space-x-3">
+                    <input type="file" @change="fileSelected($event)" class="input-field w-64 text-sm">
+                    <button type="submit" class="btn-primary text-sm" :disabled="!uploadTarget">上传</button>
+                </form>
+            </div>
+        </div>
+
+        <div x-show="showMkdir" class="flex items-center space-x-2 mb-4 p-3 bg-gray-700/50 rounded">
+            <span class="text-sm text-gray-300">目录名：</span>
+            <input type="text" x-model="mkdirName" @keyup.enter="createDir()" class="input-field w-48 text-sm" placeholder="新目录">
+            <button @click="createDir()" class="btn-primary text-sm">创建</button>
+            <button @click="showMkdir = false; mkdirName = ''" class="btn-secondary text-sm">取消</button>
+        </div>
+
+        <div x-show="showRename" class="flex items-center space-x-2 mb-4 p-3 bg-gray-700/50 rounded">
+            <span class="text-sm text-gray-300">重命名 <span class="text-white" x-text="renameTarget"></span> 为：</span>
+            <input type="text" x-model="renameName" @keyup.enter="doRename()" class="input-field w-48 text-sm">
+            <button @click="doRename()" class="btn-primary text-sm">确认</button>
+            <button @click="showRename = false" class="btn-secondary text-sm">取消</button>
+        </div>
+
+        <div class="overflow-x-auto">
+            <table class="w-full">
+                <thead class="border-b border-gray-700">
+                    <tr>
+                        <th class="table-header w-10"><input type="checkbox" @change="selectAll($event.target.checked)" :disabled="files.length === 0"></th>
+                        <th class="table-header cursor-pointer hover:text-white select-none" @click="setSort('name')">名称<span class="ml-1 text-xs" x-text="sortMark('name')"></span></th>
+                        <th class="table-header cursor-pointer hover:text-white select-none" @click="setSort('type')">类型<span class="ml-1 text-xs" x-text="sortMark('type')"></span></th>
+                        <th class="table-header cursor-pointer hover:text-white select-none" @click="setSort('size')">大小<span class="ml-1 text-xs" x-text="sortMark('size')"></span></th>
+                        <th class="table-header">权限</th>
+                        <th class="table-header cursor-pointer hover:text-white select-none" @click="setSort('time')">修改时间<span class="ml-1 text-xs" x-text="sortMark('time')"></span></th>
+                        <th class="table-header">操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr x-show="currentPath !== '/'" class="border-b border-gray-700/50 cursor-pointer hover:bg-gray-800/50" @click="goUp()">
+                        <td class="table-cell text-gray-400" colspan="7">📂 ..</td>
+                    </tr>
+                    <template x-for="f in sortedFiles" :key="f.name">
+                        <tr class="border-b border-gray-700/50" :class="isSelected(f.name) ? 'bg-blue-900/20' : ''">
+                            <td class="table-cell">
+                                <input type="checkbox" :checked="isSelected(f.name)" @click.stop @change="toggleSelect(f.name, $event.target.checked)">
+                            </td>
+                            <td class="table-cell">
+                                <span x-show="f.is_dir" class="cursor-pointer hover:text-blue-400" @click="enterDir(f.name)" x-text="'📁 ' + f.name"></span>
+                                <span x-show="!f.is_dir" x-text="'📄 ' + f.name"></span>
+                            </td>
+                            <td class="table-cell text-sm" x-text="f.is_dir ? '目录' : '文件'"></td>
+                            <td class="table-cell text-sm" x-text="f.is_dir ? '--' : formatBytes(f.size)"></td>
+                            <td class="table-cell font-mono text-xs" x-text="f.mode"></td>
+                            <td class="table-cell text-xs" x-text="f.mod_time"></td>
+                            <td class="table-cell">
+                                <div class="flex space-x-2">
+                                    <button x-show="!f.is_dir" @click="downloadFile(f.name)" class="btn-primary text-xs py-1 px-2">下载</button>
+                                    <button @click="startRename(f.name)" class="btn-secondary text-xs py-1 px-2">重命名</button>
+                                    <button @click="compressItems([f.name])" class="btn-secondary text-xs py-1 px-2" :title="f.is_dir ? '压缩目录' : '压缩文件'">压缩</button>
+                                    <button x-show="f.name.toLowerCase().endsWith('.zip')" @click="decompressFile(f.name)" class="btn-secondary text-xs py-1 px-2">解压</button>
+                                    <button @click="deleteItems([f.name])" class="btn-danger text-xs py-1 px-2">删除</button>
+                                </div>
+                            </td>
+                        </tr>
+                    </template>
+                    <tr x-show="files.length === 0 && selectedSite">
+                        <td colspan="7" class="table-cell text-center text-gray-500 py-8">空目录</td>
+                    </tr>
+                    <tr x-show="!selectedSite">
+                        <td colspan="7" class="table-cell text-center text-gray-500 py-8">请先选择网站</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+function fileManager() {
+    return {
+        sites: [],
+        selectedSite: '',
+        currentPath: '/',
+        files: [],
+        selected: [],
+        sortBy: 'name',
+        sortDir: 'asc',
+        get sortedFiles() {
+            const dir = this.sortDir === 'asc' ? 1 : -1;
+            const by = this.sortBy;
+            return [...this.files].sort((a, b) => {
+                if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1;
+                if (by === 'name') return dir * a.name.localeCompare(b.name);
+                if (by === 'type') {
+                    const ta = a.is_dir ? '0' : (a.name.split('.').pop() || '');
+                    const tb = b.is_dir ? '0' : (b.name.split('.').pop() || '');
+                    return dir * ta.localeCompare(tb);
+                }
+                if (by === 'size') return dir * (a.size - b.size);
+                if (by === 'time') return dir * (a.mod_time.localeCompare(b.mod_time));
+                return 0;
+            });
+        },
+        setSort(field) {
+            if (this.sortBy === field) { this.sortDir = this.sortDir === 'asc' ? 'desc' : 'asc'; }
+            else { this.sortBy = field; this.sortDir = 'asc'; }
+        },
+        sortMark(field) {
+            if (this.sortBy !== field) return '';
+            return this.sortDir === 'asc' ? '▲' : '▼';
+        },
+        uploadTarget: null,
+        showMkdir: false,
+        mkdirName: '',
+        showRename: false,
+        renameTarget: '',
+        renameName: '',
+        clipboard: null,
+        async initSites() {
+            try {
+                const r = await api('/websites');
+                if (r.success && r.data) this.sites = r.data;
+            } catch(e) {}
+        },
+        breadcrumbs() {
+            const parts = [{ label: '根目录', path: '/' }];
+            if (this.currentPath === '/') return parts;
+            const segs = this.currentPath.split('/').filter(s => s);
+            let p = '';
+            for (const s of segs) {
+                p += '/' + s;
+                parts.push({ label: s, path: p });
+            }
+            return parts;
+        },
+        goToBreadcrumb(idx) {
+            const bc = this.breadcrumbs();
+            this.currentPath = bc[idx].path;
+            this.loadFiles();
+        },
+        async loadFiles() {
+            if (!this.selectedSite) return;
+            this.selected = [];
+            try {
+                const r = await api('/files/list?site_id=' + this.selectedSite + '&path=' + encodeURIComponent(this.currentPath));
+                if (r.success) this.files = r.data.files || [];
+            } catch(e) { showToast(e.message, 'error'); }
+        },
+        isSelected(name) { return this.selected.includes(name); },
+        toggleSelect(name, checked) {
+            if (checked) { if (!this.selected.includes(name)) this.selected.push(name); }
+            else { this.selected = this.selected.filter(s => s !== name); }
+        },
+        selectAll(checked) {
+            this.selected = checked ? this.files.map(f => f.name) : [];
+        },
+        enterDir(name) {
+            this.currentPath = this.currentPath === '/' ? '/' + name : this.currentPath + '/' + name;
+            this.loadFiles();
+        },
+        goUp() {
+            if (this.currentPath === '/') return;
+            const parts = this.currentPath.split('/').filter(s => s);
+            parts.pop();
+            this.currentPath = '/' + parts.join('/');
+            if (this.currentPath === '') this.currentPath = '/';
+            this.loadFiles();
+        },
+        fileSelected(e) { this.uploadTarget = e.target.files[0]; },
+        async uploadFile() {
+            if (!this.uploadTarget) return;
+            const name = this.uploadTarget.name;
+            const exists = this.files.some(f => !f.is_dir && f.name === name);
+            if (exists && !await confirmModal(name + ' 已存在，确认覆盖？')) return;
+            const fd = new FormData();
+            fd.append('file', this.uploadTarget);
+            try {
+                const r = await api('/files/upload?site_id=' + this.selectedSite + '&path=' + encodeURIComponent(this.currentPath), { method: 'POST', body: fd, headers: {} });
+                if (r.success) { this.uploadTarget = null; this.loadFiles(); showToast('上传成功', 'success'); }
+            } catch(e) { showToast(e.message, 'error'); }
+        },
+        downloadFile(name) {
+            const prefix = document.body.dataset.panelPrefix || '';
+            window.open(prefix + '/api/files/download?site_id=' + this.selectedSite + '&path=' + encodeURIComponent(this.currentPath === '/' ? '/' + name : this.currentPath + '/' + name));
+        },
+        startRename(name) {
+            this.renameTarget = name;
+            this.renameName = name;
+            this.showRename = true;
+            this.$nextTick(() => {
+                const inp = document.querySelector('input[x-model="renameName"]');
+                if (inp) { inp.focus(); inp.select(); }
+            });
+        },
+        async doRename() {
+            const name = this.renameName.trim();
+            if (!name || name === this.renameTarget) { this.showRename = false; return; }
+            const oldPath = this.currentPath === '/' ? '/' + this.renameTarget : this.currentPath + '/' + this.renameTarget;
+            try {
+                await api('/files/rename', {
+                    method: 'PUT',
+                    body: JSON.stringify({ site_id: parseInt(this.selectedSite), old_path: oldPath, new_name: name })
+                });
+                this.showRename = false;
+                this.loadFiles();
+                showToast('重命名成功', 'success');
+            } catch(e) { showToast(e.message, 'error'); }
+        },
+        async createDir() {
+            const name = this.mkdirName.trim();
+            if (!name) return;
+            try {
+                await api('/files/mkdir?site_id=' + this.selectedSite + '&path=' + encodeURIComponent(this.currentPath), {
+                    method: 'POST', body: JSON.stringify({ name })
+                });
+                this.showMkdir = false;
+                this.mkdirName = '';
+                this.loadFiles();
+                showToast('目录创建成功', 'success');
+            } catch(e) { showToast(e.message, 'error'); }
+        },
+        pathFor(name) { return this.currentPath === '/' ? '/' + name : this.currentPath + '/' + name; },
+        async deleteItems(names) {
+            const label = names.length === 1 ? names[0] : names.length + ' 个项目';
+            if (!await confirmModal('确认删除 ' + label + '？')) return;
+            for (let i = 0; i < names.length; i++) {
+                const name = names[i];
+                try {
+                    await api('/files/delete?site_id=' + this.selectedSite + '&path=' + encodeURIComponent(this.pathFor(name)), { method: 'DELETE' });
+                    if (names.length > 1) showToast('已删除 ' + name + ' (' + (i + 1) + '/' + names.length + ')', 'info');
+                } catch(e) { showToast('删除 ' + name + ' 失败: ' + e.message, 'error'); return; }
+            }
+            this.loadFiles(); showToast('删除完成', 'success');
+        },
+        batchDelete() { this.deleteItems([...this.selected]); },
+        cutItems() {
+            this.clipboard = { action: 'cut', site_id: this.selectedSite, src_path: this.currentPath, names: [...this.selected] };
+            showToast('已剪切 ' + this.selected.length + ' 个项目到剪贴板', 'info');
+            this.selected = [];
+        },
+        copyItems() {
+            this.clipboard = { action: 'copy', site_id: this.selectedSite, src_path: this.currentPath, names: [...this.selected] };
+            showToast('已复制 ' + this.selected.length + ' 个项目到剪贴板', 'info');
+            this.selected = [];
+        },
+        async pasteItems() {
+            if (!this.clipboard) return;
+            const cb = this.clipboard;
+            const apiPath = cb.action === 'cut' ? '/files/move' : '/files/copy';
+            try {
+                const r = await api(apiPath, {
+                    method: 'POST',
+                    body: JSON.stringify({ site_id: parseInt(cb.site_id), src_path: cb.src_path, dest_path: this.currentPath, names: cb.names })
+                });
+                showToast(r.data?.message || '操作完成', 'success');
+                this.clipboard = null;
+                this.loadFiles();
+            } catch(e) { showToast(e.message, 'error'); }
+        },
+        async compressItems(names) {
+            if (names.length === 1) {
+                try {
+                    const r = await api('/files/zip?site_id=' + this.selectedSite + '&path=' + encodeURIComponent(this.pathFor(names[0])), { method: 'POST' });
+                    if (r.success) { this.loadFiles(); showToast(r.data?.message || '压缩完成', 'success'); }
+                } catch(e) { showToast(e.message, 'error'); }
+            } else {
+                this.batchCompress();
+            }
+        },
+        async batchCompress() {
+            if (this.selected.length === 0) return;
+            const defaultName = 'archive_' + new Date().toISOString().replace(/[-:]/g, '').replace(/\..+/, '') + '.zip';
+            const archiveName = prompt('请输入压缩文件名：', defaultName);
+            if (!archiveName) return;
+            try {
+                const r = await api('/files/batch-zip', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        site_id: parseInt(this.selectedSite),
+                        path: this.currentPath,
+                        names: [...this.selected],
+                        archive_name: archiveName.trim()
+                    })
+                });
+                if (r.success) { this.loadFiles(); showToast(r.data?.message || '压缩完成', 'success'); }
+            } catch(e) { showToast(e.message, 'error'); }
+        },
+        async decompressFile(name) {
+            if (!await confirmModal('确认解压 ' + name + ' 到当前目录？')) return;
+            const path = this.pathFor(name);
+            try {
+                const r = await api('/files/unzip?site_id=' + this.selectedSite + '&path=' + encodeURIComponent(path), { method: 'POST' });
+                if (r.success) { this.loadFiles(); showToast(r.data?.message || '解压完成', 'success'); }
+            } catch(e) {
+                if (e.conflicts) {
+                    const msg = '以下文件将被覆盖，确认继续？\n\n' + e.conflicts.join('\n');
+                    if (await confirmModal(msg)) {
+                        try {
+                            await api('/files/unzip?site_id=' + this.selectedSite + '&path=' + encodeURIComponent(path) + '&overwrite=1', { method: 'POST' });
+                            this.loadFiles(); showToast('解压完成', 'success');
+                        } catch(e2) { showToast(e2.message, 'error'); }
+                    }
+                } else {
+                    showToast(e.message, 'error');
+                }
+            }
+        }
+    }
+}
+</script>
+{{end}}

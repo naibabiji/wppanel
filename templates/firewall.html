@@ -1,0 +1,219 @@
+{{template "base" .}}
+{{define "firewall_content"}}
+<div x-data="firewallManager()" x-init="fetchBans()">
+    <div class="flex items-center justify-between mb-6">
+        <h2 class="text-xl font-bold text-white">安全防御</h2>
+        <button @click="showRules = true" class="btn-secondary text-sm">封禁说明</button>
+    </div>
+
+    <div x-show="showRules" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black/60" @click.self="showRules = false">
+        <div class="bg-gray-800 rounded-lg p-6 max-w-lg w-full mx-4 shadow-xl">
+            <h3 class="text-lg font-bold text-white mb-4">自动封禁规则说明</h3>
+            <div class="text-sm text-gray-300 space-y-4">
+                <div>
+                    <p class="text-white font-semibold mb-1">检测范围</p>
+                    <p>监控所有网站的 access.log 和 error.log</p>
+                </div>
+                <div>
+                    <p class="text-white font-semibold mb-1">触发条件（命中以下任一规则计为 1 次违规）</p>
+                    <ul class="list-disc list-inside space-y-1 ml-2">
+                        <li>POST /wp-login.php — WordPress 登录暴力破解</li>
+                        <li>POST /xmlrpc.php — XML-RPC 接口攻击</li>
+                        <li>访问敏感文件返回 404 — 扫描 .env、.git、wp-config.php、.sql、.tar.gz、.zip 等</li>
+                    </ul>
+                </div>
+                <div>
+                    <p class="text-white font-semibold mb-1">封禁阈值（可在安全设置中自定义）</p>
+                    <p>默认：<span class="text-blue-400">60 秒</span>内累计 <span class="text-blue-400">5 次</span>违规 → 自动封禁</p>
+                </div>
+                <div>
+                    <p class="text-white font-semibold mb-1">多级渐进封禁</p>
+                    <ul class="list-disc list-inside space-y-1 ml-2">
+                        <li><span class="badge-warning">临时10分钟</span> — 初犯：Fail2ban 封禁 10 分钟，到期自动解除</li>
+                        <li><span class="badge-danger">临时24小时</span> — 累犯：解封后 <span class="text-blue-400">24 小时</span>内再次违规 → 升级为 24 小时，同时写入 Nftables 持久规则</li>
+                        <li><span class="badge-danger">永久封禁</span> — 惯犯：累计 <span class="text-blue-400">3 次</span> 24 小时封禁 → 自动转为永久封禁，仅通过 Nftables 持久规则封锁</li>
+                    </ul>
+                </div>
+                <div>
+                    <p class="text-white font-semibold mb-1">封禁机制</p>
+                    <ul class="space-y-1 ml-2">
+                        <li><span class="text-blue-400">Fail2ban</span> — 管理临时封禁（10分钟/24小时），到期自动释放</li>
+                        <li><span class="text-purple-400">Nftables 持久</span> — 管理永久封禁，独立于 Fail2ban，重启不丢失</li>
+                    </ul>
+                </div>
+                <div>
+                    <p class="text-white font-semibold mb-1">白名单豁免</p>
+                    <p>127.0.0.1、Cloudflare / Googlebot / Bingbot 官方 IP、自定义白名单 IP 不会被封禁</p>
+                </div>
+                <div>
+                    <p class="text-white font-semibold mb-1">服务器验证命令</p>
+                    <p class="text-gray-500 mb-1">SSH 登录服务器执行以下命令查看当前封禁状态：</p>
+                    <div class="bg-gray-900 rounded p-3 font-mono text-xs text-gray-300 space-y-2">
+                        <div>
+                            <span class="text-gray-500"># 查看 Fail2ban 临时封禁</span>
+                            <br><span class="text-green-400">fail2ban-client</span> status wppanel
+                        </div>
+                        <div>
+                            <span class="text-gray-500"># 查看 Nftables 持久封禁</span>
+                            <br><span class="text-green-400">nft</span> list set ip wppanel_persist banned_ips
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="mt-5 text-right">
+                <button @click="showRules = false" class="btn-primary text-sm">知道了</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mb-6">
+        <h3 class="text-lg font-semibold text-white mb-4">手动封禁 IP</h3>
+        <div class="flex items-end space-x-3">
+            <div class="flex-1">
+                <label class="block text-sm text-gray-300 mb-1">IP 地址</label>
+                <input type="text" x-model="banIP" class="input-field" placeholder="192.168.1.100">
+            </div>
+            <div>
+                <label class="block text-sm text-gray-300 mb-1">封禁时长</label>
+                <select x-model="banDuration" class="input-field">
+                    <option value="600">10 分钟</option>
+                    <option value="3600">1 小时</option>
+                    <option value="86400">24 小时</option>
+                    <option value="0">永久</option>
+                </select>
+            </div>
+            <button @click="manualBan()" :disabled="banSubmitting" class="btn-danger" x-text="banSubmitting ? '封禁中...' : '封禁'"></button>
+        </div>
+    </div>
+
+    <div class="card mb-6">
+        <h3 class="text-lg font-semibold text-white mb-4">当前封禁列表</h3>
+        <div class="overflow-x-auto">
+            <table class="w-full">
+                <thead class="border-b border-gray-700">
+                    <tr>
+                        <th class="table-header">IP 地址</th>
+                        <th class="table-header">等级</th>
+                        <th class="table-header">原因</th>
+                        <th class="table-header">来源</th>
+                        <th class="table-header">封禁时间</th>
+                        <th class="table-header">过期时间</th>
+                        <th class="table-header">累计次数</th>
+                        <th class="table-header">操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <template x-for="ban in bans" :key="ban.id">
+                        <tr class="border-b border-gray-700/50">
+                            <td class="table-cell font-mono text-sm" x-text="ban.ip_address"></td>
+                            <td class="table-cell">
+                                <span :class="banLevelClass(ban.ban_level)" x-text="banLevelText(ban.ban_level)"></span>
+                            </td>
+                            <td class="table-cell text-sm" x-text="ban.reason || '--'"></td>
+                            <td class="table-cell">
+                                <span :class="sourceClass(ban)" class="text-xs" x-text="sourceLabel(ban)"></span>
+                            </td>
+                            <td class="table-cell text-xs" x-text="formatTime(ban.banned_at)"></td>
+                            <td class="table-cell text-xs" x-text="ban.expires_at ? formatTime(ban.expires_at) : '永久'"></td>
+                            <td class="table-cell" x-text="ban.ban_count"></td>
+                            <td class="table-cell">
+                                <button @click="unban(ban)" class="btn-success text-xs py-1 px-2">解封</button>
+                                <button x-show="ban.ban_level < 4" @click="permanentBan(ban)" class="btn-danger text-xs py-1 px-2 ml-1">永久封禁</button>
+                            </td>
+                        </tr>
+                    </template>
+                    <tr x-show="bans.length === 0">
+                        <td colspan="8" class="table-cell text-center text-gray-500 py-8">当前无封禁记录</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="card" x-data="{history:[], loaded:false}" x-init="fetchHistory()">
+        <h3 class="text-lg font-semibold text-white mb-4">历史封禁记录（最近30条）</h3>
+        <div class="overflow-x-auto">
+            <table class="w-full">
+                <thead class="border-b border-gray-700">
+                    <tr>
+                        <th class="table-header">IP 地址</th>
+                        <th class="table-header">等级</th>
+                        <th class="table-header">原因</th>
+                        <th class="table-header">封禁时间</th>
+                        <th class="table-header">解封时间</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <template x-for="h in history" :key="h.id">
+                        <tr class="border-b border-gray-700/50">
+                            <td class="table-cell font-mono text-sm" x-text="h.ip_address"></td>
+                            <td class="table-cell">
+                                <span :class="['','badge-info','badge-warning','badge-danger','badge-danger'][h.ban_level]" x-text="['','限速','临时10分钟','临时24小时','永久'][h.ban_level]"></span>
+                            </td>
+                            <td class="table-cell text-sm" x-text="h.reason || '--'"></td>
+                            <td class="table-cell text-xs" x-text="formatTime(h.banned_at)"></td>
+                            <td class="table-cell text-xs" x-text="h.unbanned_at ? formatTime(h.unbanned_at) : '永久'"></td>
+                        </tr>
+                    </template>
+                    <tr x-show="history.length === 0">
+                        <td colspan="5" class="table-cell text-center text-gray-500 py-4">暂无历史记录</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+</div>
+
+<script>
+function firewallManager() {
+    return {
+        bans: [],
+        banIP: '',
+        banDuration: '600',
+        banSubmitting: false,
+        showRules: false,
+        async fetchBans() {
+            try { const r = await api('/firewall/bans'); if (r.success) this.bans = r.data || []; } catch(e) {}
+        },
+        banLevelText(l) { return ['','限速','临时10分钟','临时24小时','永久封禁'][l] || '未知'; },
+        banLevelClass(l) { return ['','badge-info','badge-warning','badge-danger','badge-danger'][l] || 'badge-info'; },
+        sourceLabel(ban) {
+            if (ban.ban_level >= 4) return 'Nftables 持久';
+            if (ban.source_jail === 'wppanel') return 'Fail2ban';
+            if (ban.source_jail === 'panel') return '面板';
+            return ban.source_jail || '--';
+        },
+        sourceClass(ban) {
+            if (ban.ban_level >= 4) return 'text-purple-400';
+            if (ban.source_jail === 'wppanel') return 'text-blue-400';
+            return 'text-gray-400';
+        },
+        formatTime(t) { return t ? new Date(t).toLocaleString('zh-CN') : '--'; },
+        async unban(ban) {
+            if (!await confirmModal('确认解封 ' + ban.ip_address + '？')) return;
+            try { await api('/firewall/bans/' + ban.id, { method: 'DELETE' }); await this.fetchBans(); showToast('已解封', 'success'); } catch(e) { showToast(e.message, 'error'); }
+        },
+        async permanentBan(ban) {
+            if (!await confirmModal('确认将 ' + ban.ip_address + ' 永久封禁？')) return;
+            try { await api('/firewall/bans/' + ban.id + '/permanent', { method: 'POST' }); await this.fetchBans(); showToast('已加入黑名单', 'success'); } catch(e) { showToast(e.message, 'error'); }
+        },
+        async manualBan() {
+            if (!this.banIP.trim()) { showToast('请输入IP地址', 'error'); return; }
+            this.banSubmitting = true;
+            try {
+                const r = await api('/firewall/bans', { method: 'POST', body: JSON.stringify({ ip: this.banIP.trim(), duration: parseInt(this.banDuration) }) });
+                showToast(r.data?.message || '封禁成功', 'success');
+                this.banIP = '';
+                await this.fetchBans();
+            } catch(e) { showToast(e.message, 'error'); }
+            finally { this.banSubmitting = false; }
+        }
+    }
+}
+
+function fetchHistory() {
+    api('/firewall/bans?history=1').then(r => {
+        if (r.success) this.history = r.data || [];
+    }).catch(e => {});
+}
+</script>
+{{end}}

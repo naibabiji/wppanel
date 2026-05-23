@@ -1,0 +1,200 @@
+{{template "base" .}}
+{{define "security_content"}}
+<div x-data="securitySettings()" x-init="fetchSettings()">
+    <div class="flex items-center justify-between mb-6">
+        <h2 class="text-xl font-bold text-white">安全设置</h2>
+        <button @click="showHelp = true" class="btn-secondary text-sm">帮助说明</button>
+    </div>
+
+    <div x-show="showHelp" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black/60" @click.self="showHelp = false">
+        <div class="bg-gray-800 rounded-lg p-6 max-w-lg w-full mx-4 shadow-xl max-h-[80vh] overflow-y-auto">
+            <h3 class="text-lg font-bold text-white mb-4">安全设置说明</h3>
+            <div class="text-sm text-gray-300 space-y-4">
+                <div>
+                    <p class="text-white font-semibold mb-2">Fail2ban 配置项</p>
+                    <ul class="space-y-3 ml-2">
+                        <li>
+                            <p class="text-blue-400 font-medium">触发阈值（次）</p>
+                            <p>在统计窗口内，单个 IP 触发特征规则的次数达到此值即自动封禁。默认 <span class="text-blue-400">5</span> 次。调低会更敏感（容易误封），调高则更宽松。</p>
+                        </li>
+                        <li>
+                            <p class="text-blue-400 font-medium">统计窗口（秒）</p>
+                            <p>用于累计违规次数的时间范围。默认 <span class="text-blue-400">60</span> 秒。与触发阈值配合使用：例如默认配置即"60 秒内违规 5 次则封禁"。窗口越大，累计越容易触发。</p>
+                        </li>
+                        <li>
+                            <p class="text-blue-400 font-medium">封禁时长（秒）</p>
+                            <p>首次违规触发封禁后，IP 被防火墙拦截的时长。默认 <span class="text-blue-400">600</span> 秒（10 分钟）。到期后 fail2ban 自动解封，但若该 IP 在 24 小时内再次违规，将自动升级为 24 小时封禁。</p>
+                        </li>
+                    </ul>
+                </div>
+                <div>
+                    <p class="text-white font-semibold mb-2">白名单机制</p>
+                    <ul class="space-y-3 ml-2">
+                        <li>
+                            <p class="text-blue-400 font-medium">官方白名单</p>
+                            <p>面板自动从以下官方来源拉取最新 IP 段，加入 fail2ban 白名单，防止误封合法爬虫和 CDN 节点：</p>
+                            <ul class="list-disc list-inside ml-2 mt-1 space-y-0.5">
+                                <li><span class="text-white">Cloudflare</span> — 全球 CDN 和反向代理 IP 段（ipv4 + ipv6）</li>
+                                <li><span class="text-white">Googlebot</span> — Google 搜索爬虫官方 IP 段</li>
+                                <li><span class="text-white">Bingbot</span> — Bing 搜索爬虫官方 IP 段</li>
+                            </ul>
+                            <p class="text-gray-500 mt-1">勾选"每周自动更新"后，系统将在每周一凌晨 4:00 自动重新拉取最新 IP。</p>
+                        </li>
+                        <li>
+                            <p class="text-blue-400 font-medium">自定义白名单</p>
+                            <p>手动添加不会被封禁的 IP 或 IP 段，每行一个。支持 IPv4/IPv6 地址和 CIDR 格式（如 <code>10.0.0.0/8</code>）。自定义白名单不会被官方拉取覆盖。</p>
+                        </li>
+                    </ul>
+                </div>
+                <div>
+                    <p class="text-white font-semibold mb-2">渐进封禁与双机制</p>
+                    <ul class="space-y-2 ml-2">
+                        <li>首次违规 → Fail2ban 封禁 <span class="text-blue-400">10 分钟</span>，到期自动解除</li>
+                        <li>24 小时内再次违规 → 升级为 <span class="text-blue-400">24 小时</span>封禁，同时写入 Nftables 持久规则</li>
+                        <li>累计 3 次 24 小时封禁 → 自动转为<span class="text-blue-400">永久封禁</span>，仅通过 Nftables 持久封锁</li>
+                    </ul>
+                    <p class="text-gray-500 mt-1">封禁列表页可通过"来源"列区分 Fail2ban 临时封禁 与 Nftables 持久封禁。</p>
+                </div>
+                <div>
+                    <p class="text-white font-semibold mb-2">服务器验证命令</p>
+                    <p class="text-gray-500 mb-1">SSH 登录服务器执行以下命令查看当前封禁状态：</p>
+                    <div class="bg-gray-900 rounded p-3 font-mono text-xs text-gray-300 space-y-2">
+                        <div>
+                            <span class="text-gray-500"># Fail2ban 临时封禁状态</span>
+                            <br><span class="text-green-400">fail2ban-client</span> status wppanel
+                        </div>
+                        <div>
+                            <span class="text-gray-500"># Nftables 持久封禁列表</span>
+                            <br><span class="text-green-400">nft</span> list set ip wppanel_persist banned_ips
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="mt-5 text-right">
+                <button @click="showHelp = false" class="btn-primary text-sm">知道了</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mb-6">
+        <div class="card">
+            <h3 class="text-lg font-semibold text-white mb-4">Fail2ban 配置</h3>
+            <form @submit.prevent="save">
+                <div class="mb-4">
+                    <label class="label">触发阈值 (次)</label>
+                    <input type="number" x-model="settings.fail2ban_maxretry" class="input-field" min="1" max="20">
+                </div>
+                <div class="mb-4">
+                    <label class="label">统计窗口 (秒)</label>
+                    <input type="number" x-model="settings.fail2ban_findtime" class="input-field" min="10" max="3600">
+                </div>
+                <div class="mb-4">
+                    <label class="label">封禁时长 (秒)</label>
+                    <input type="number" x-model="settings.fail2ban_bantime" class="input-field" min="60" max="86400">
+                </div>
+                <div class="mb-6">
+                    <label class="flex items-center space-x-2 cursor-pointer">
+                        <input type="checkbox" x-model="settings.auto_whitelist_enabled" class="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-600">
+                        <span class="text-gray-300">每周自动更新官方白名单</span>
+                    </label>
+                </div>
+                <button type="submit" class="btn-primary">保存设置</button>
+            </form>
+        </div>
+
+        <div class="card">
+            <h3 class="text-lg font-semibold text-white mb-4">请求频率限制</h3>
+            <form @submit.prevent="saveRateLimit">
+                <div class="mb-4">
+                    <label class="flex items-center space-x-2 cursor-pointer">
+                        <input type="checkbox" x-model="settings.rate_limit_enabled" class="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-600">
+                        <span class="text-gray-300">开启全局限速</span>
+                    </label>
+                    <p class="text-xs text-gray-500 mt-1">开启后每个 IP 分钟请求数受限，超限返回 429，触发多次 429 将被 Fail2ban 封禁</p>
+                </div>
+                <div class="mb-4">
+                    <label class="label">请求频率限制 (次/分钟)</label>
+                    <input type="number" x-model="settings.rate_limit_rpm" class="input-field" min="10" max="600">
+                    <p class="text-xs text-gray-500 mt-1">正常浏览约 30-50 次/分钟。攻击行为通常远超此值。建议 30-120</p>
+                </div>
+                <div class="mb-4">
+                    <label class="label">突发缓冲 (次)</label>
+                    <input type="number" x-model="settings.rate_limit_burst" class="input-field" min="5" max="300">
+                    <p class="text-xs text-gray-500 mt-1">瞬间超出限制的额外允许量，页面含多图片/CSS/JS 时短期请求可能集中</p>
+                </div>
+                <button type="submit" class="btn-primary">保存限速设置</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3 class="text-lg font-semibold text-white mb-4">白名单管理</h3>
+        <div class="mb-4">
+            <div class="flex items-center justify-between mb-2">
+                <label class="label">官方白名单（由面板自动拉取）</label>
+                <button @click="refreshWhitelist" class="text-sm py-1 px-3 rounded" style="background-color: #166534; color: #bbf7d0;">立即拉取</button>
+            </div>
+            <textarea x-model="settings.official_whitelist_ips" class="input-field font-mono text-sm" rows="5" readonly disabled style="opacity: 0.6;"></textarea>
+            <p class="text-gray-500 text-xs mt-1" x-text="'上次更新: ' + (settings.last_whitelist_update || '从未')"></p>
+        </div>
+        <div class="mb-4">
+            <label class="label">自定义白名单（不会被官方拉取覆盖）</label>
+            <textarea x-model="settings.whitelist_ips" class="input-field font-mono text-sm" rows="4" placeholder="1.2.3.4&#10;10.0.0.0/8"></textarea>
+        </div>
+        <button @click="saveWhitelist" class="btn-primary">保存自定义白名单</button>
+    </div>
+</div>
+
+<script>
+function securitySettings() {
+    return {
+        settings: {},
+        showHelp: false,
+        async fetchSettings() {
+            try {
+                const r = await api('/security/settings');
+                if (r.success) {
+                    const map = {};
+                    r.data.forEach(s => {
+                        let v = s.svalue;
+                        if (['auto_whitelist_enabled','rate_limit_enabled'].includes(s.skey)) v = v === 'true';
+                        else if (['fail2ban_maxretry','fail2ban_findtime','fail2ban_bantime','rate_limit_rpm','rate_limit_burst'].includes(s.skey)) v = parseInt(v) || 0;
+                        map[s.skey] = v;
+                    });
+                    this.settings = map;
+                }
+            } catch(e) {}
+        },
+        async save() {
+            try {
+                await api('/security/settings', { method: 'PUT', body: this.settings });
+                showToast('设置已保存', 'success');
+            } catch(e) { showToast(e.message, 'error'); }
+        },
+        async saveRateLimit() {
+            try {
+                await api('/security/settings', { method: 'PUT', body: {
+                    rate_limit_enabled: this.settings.rate_limit_enabled ? 'true' : 'false',
+                    rate_limit_rpm: String(this.settings.rate_limit_rpm || 60),
+                    rate_limit_burst: String(this.settings.rate_limit_burst || 30),
+                } });
+                showToast('限速设置已保存', 'success');
+            } catch(e) { showToast(e.message, 'error'); }
+        },
+        async saveWhitelist() {
+            try {
+                await api('/security/settings', { method: 'PUT', body: { whitelist_ips: this.settings.whitelist_ips || '' } });
+                showToast('白名单已更新', 'success');
+            } catch(e) { showToast(e.message, 'error'); }
+        },
+        async refreshWhitelist() {
+            try {
+                const r = await api('/security/whitelist/refresh', { method: 'POST' });
+                showToast(r.data?.message || '已触发', 'success');
+                await this.fetchSettings();
+            } catch(e) { showToast(e.message, 'error'); }
+        }
+    }
+}
+</script>
+{{end}}

@@ -1,0 +1,740 @@
+package handlers
+
+import (
+	"archive/zip"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/naibabiji/wp-panel/models"
+
+	"github.com/gin-gonic/gin"
+)
+
+type FileHandler struct{}
+
+type fileEntry struct {
+	Name    string `json:"name"`
+	IsDir   bool   `json:"is_dir"`
+	Size    int64  `json:"size"`
+	Mode    string `json:"mode"`
+	ModTime string `json:"mod_time"`
+}
+
+func fileBasePath(siteID int) (string, error) {
+	if siteID == 0 {
+		return "/www/server/panel/backups", nil
+	}
+	site := getWebsiteByID(siteID)
+	if site == nil {
+		return "", fmt.Errorf("网站不存在")
+	}
+	return site.WebRoot, nil
+}
+
+func (h *FileHandler) List(c *gin.Context) {
+	siteIDStr := c.Query("site_id")
+	relPath := c.DefaultQuery("path", "/")
+
+	siteID, err := strconv.Atoi(siteIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("无效的网站ID"))
+		return
+	}
+
+	basePath, err := fileBasePath(siteID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, models.ErrorResponse(err.Error()))
+		return
+	}
+
+	fullPath := filepath.Join(basePath, relPath)
+	fullPath = filepath.Clean(fullPath)
+	if !strings.HasPrefix(fullPath, filepath.Clean(basePath)) {
+		c.JSON(http.StatusForbidden, models.ErrorResponse("路径越权"))
+		return
+	}
+
+	entries, err := os.ReadDir(fullPath)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("读取目录失败: "+err.Error()))
+		return
+	}
+
+	var files []fileEntry
+	for _, e := range entries {
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		files = append(files, fileEntry{
+			Name:    e.Name(),
+			IsDir:   e.IsDir(),
+			Size:    info.Size(),
+			Mode:    info.Mode().String(),
+			ModTime: info.ModTime().Format("2006-01-02 15:04:05"),
+		})
+	}
+	if files == nil {
+		files = []fileEntry{}
+	}
+
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
+		"path":  relPath,
+		"files": files,
+	}))
+}
+
+func (h *FileHandler) Upload(c *gin.Context) {
+	siteIDStr := c.Query("site_id")
+	relPath := c.DefaultQuery("path", "/")
+
+	siteID, err := strconv.Atoi(siteIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("无效的网站ID"))
+		return
+	}
+
+	basePath, err := fileBasePath(siteID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, models.ErrorResponse("网站不存在"))
+		return
+	}
+
+	file, err := c.FormFile("file")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("请选择文件"))
+		return
+	}
+
+	destPath := filepath.Join(basePath, relPath, filepath.Base(file.Filename))
+	destPath = filepath.Clean(destPath)
+	if !strings.HasPrefix(destPath, filepath.Clean(basePath)) {
+		c.JSON(http.StatusForbidden, models.ErrorResponse("路径越权"))
+		return
+	}
+
+	if err := c.SaveUploadedFile(file, destPath); err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("上传失败: "+err.Error()))
+		return
+	}
+
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"message": "文件上传成功"}))
+}
+
+func (h *FileHandler) Download(c *gin.Context) {
+	siteIDStr := c.Query("site_id")
+	relPath := c.Query("path")
+
+	siteID, err := strconv.Atoi(siteIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("无效的网站ID"))
+		return
+	}
+
+	basePath, err := fileBasePath(siteID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, models.ErrorResponse("网站不存在"))
+		return
+	}
+
+	fullPath := filepath.Join(basePath, relPath)
+	fullPath = filepath.Clean(fullPath)
+	if !strings.HasPrefix(fullPath, filepath.Clean(basePath)) {
+		c.JSON(http.StatusForbidden, models.ErrorResponse("路径越权"))
+		return
+	}
+
+	info, err := os.Stat(fullPath)
+	if err != nil || info.IsDir() {
+		c.JSON(http.StatusNotFound, models.ErrorResponse("文件不存在"))
+		return
+	}
+
+	c.FileAttachment(fullPath, filepath.Base(fullPath))
+}
+
+func (h *FileHandler) Delete(c *gin.Context) {
+	siteIDStr := c.Query("site_id")
+	relPath := c.Query("path")
+
+	siteID, err := strconv.Atoi(siteIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("无效的网站ID"))
+		return
+	}
+
+	basePath, err := fileBasePath(siteID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, models.ErrorResponse("网站不存在"))
+		return
+	}
+
+	fullPath := filepath.Join(basePath, relPath)
+	fullPath = filepath.Clean(fullPath)
+	if !strings.HasPrefix(fullPath, filepath.Clean(basePath)) {
+		c.JSON(http.StatusForbidden, models.ErrorResponse("路径越权"))
+		return
+	}
+
+	info, err := os.Stat(fullPath)
+	if err != nil {
+		c.JSON(http.StatusNotFound, models.ErrorResponse("路径不存在"))
+		return
+	}
+
+if info.IsDir() {
+		if err := os.RemoveAll(fullPath); err != nil {
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse("删除失败: "+err.Error()))
+			return
+		}
+	} else {
+		if err := os.Remove(fullPath); err != nil {
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse("删除失败: "+err.Error()))
+			return
+		}
+	}
+
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"message": "删除成功"}))
+}
+
+func (h *FileHandler) Rename(c *gin.Context) {
+	var req struct {
+		SiteID  int    `json:"site_id"`
+		OldPath string `json:"old_path"`
+		NewName string `json:"new_name"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("参数错误"))
+		return
+	}
+
+basePath, err := fileBasePath(req.SiteID)
+if err != nil {
+		c.JSON(http.StatusNotFound, models.ErrorResponse("网站不存在"))
+		return
+	}
+
+	oldFull := filepath.Join(basePath, req.OldPath)
+	newFull := filepath.Join(filepath.Dir(oldFull), req.NewName)
+
+	if !strings.HasPrefix(filepath.Clean(oldFull), filepath.Clean(basePath)) ||
+		!strings.HasPrefix(filepath.Clean(newFull), filepath.Clean(basePath)) {
+		c.JSON(http.StatusForbidden, models.ErrorResponse("路径越权"))
+		return
+	}
+
+	if err := os.Rename(oldFull, newFull); err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("重命名失败: "+err.Error()))
+		return
+	}
+
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"message": "重命名成功"}))
+}
+
+func (h *FileHandler) Permissions(c *gin.Context) {
+	siteIDStr := c.Query("site_id")
+	relPath := c.Query("path")
+
+	siteID, err := strconv.Atoi(siteIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("无效的网站ID"))
+		return
+	}
+
+	basePath, err := fileBasePath(siteID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, models.ErrorResponse("网站不存在"))
+		return
+	}
+
+	fullPath := filepath.Join(basePath, relPath)
+	fullPath = filepath.Clean(fullPath)
+	if !strings.HasPrefix(fullPath, filepath.Clean(basePath)) {
+		c.JSON(http.StatusForbidden, models.ErrorResponse("路径越权"))
+		return
+	}
+
+	info, err := os.Stat(fullPath)
+	if err != nil {
+		c.JSON(http.StatusNotFound, models.ErrorResponse("路径不存在"))
+		return
+	}
+
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{
+		"path":        relPath,
+		"permissions": info.Mode().String(),
+		"size":        info.Size(),
+		"mod_time":    info.ModTime().Format("2006-01-02 15:04:05"),
+		"is_dir":      info.IsDir(),
+	}))
+}
+
+func (h *FileHandler) BatchCompress(c *gin.Context) {
+	var req struct {
+		SiteID      int      `json:"site_id"`
+		Path        string   `json:"path"`
+		Names       []string `json:"names"`
+		ArchiveName string   `json:"archive_name"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || len(req.Names) == 0 {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("请选择要压缩的文件或目录"))
+		return
+	}
+
+basePath, err := fileBasePath(req.SiteID)
+if err != nil {
+		c.JSON(http.StatusNotFound, models.ErrorResponse("网站不存在"))
+		return
+	}
+
+	workPath := filepath.Join(basePath, req.Path)
+	workPath = filepath.Clean(workPath)
+	if !strings.HasPrefix(workPath, filepath.Clean(basePath)) {
+		c.JSON(http.StatusForbidden, models.ErrorResponse("路径越权"))
+		return
+	}
+
+	archiveName := strings.TrimSpace(req.ArchiveName)
+	if archiveName == "" {
+		archiveName = fmt.Sprintf("archive_%s.zip", time.Now().Format("20060102_150405"))
+	}
+	if !strings.HasSuffix(strings.ToLower(archiveName), ".zip") {
+		archiveName += ".zip"
+	}
+
+	zipPath := filepath.Join(basePath, archiveName)
+	zipFile, err := os.Create(zipPath)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("创建压缩文件失败"))
+		return
+	}
+	defer zipFile.Close()
+
+	w := zip.NewWriter(zipFile)
+	defer w.Close()
+
+	for _, name := range req.Names {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		fullPath := filepath.Join(basePath, filepath.Clean(name))
+		if !strings.HasPrefix(fullPath, filepath.Clean(basePath)) {
+			continue
+		}
+		info, err := os.Stat(fullPath)
+		if err != nil {
+			continue
+		}
+		if info.IsDir() {
+			filepath.Walk(fullPath, func(path string, fi os.FileInfo, err error) error {
+				if err != nil {
+					return nil
+				}
+				rel, _ := filepath.Rel(basePath, path)
+				rel = filepath.ToSlash(rel)
+				header, err := zip.FileInfoHeader(fi)
+				if err != nil {
+					return nil
+				}
+				header.Name = rel
+				header.Method = zip.Deflate
+				if fi.IsDir() {
+					header.Name += "/"
+					w.CreateHeader(header)
+					return nil
+				}
+				writer, err := w.CreateHeader(header)
+				if err != nil {
+					return nil
+				}
+				f, err := os.Open(path)
+				if err != nil {
+					return nil
+				}
+				defer f.Close()
+				io.Copy(writer, f)
+				return nil
+			})
+		} else {
+			header, err := zip.FileInfoHeader(info)
+			if err != nil {
+				continue
+			}
+			header.Name = info.Name()
+			header.Method = zip.Deflate
+			writer, err := w.CreateHeader(header)
+			if err != nil {
+				continue
+			}
+			f, err := os.Open(fullPath)
+			if err != nil {
+				continue
+			}
+			defer f.Close()
+			io.Copy(writer, f)
+		}
+	}
+
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"message": fmt.Sprintf("已压缩为 %s", archiveName)}))
+}
+
+func (h *FileHandler) Compress(c *gin.Context) {
+	siteIDStr := c.Query("site_id")
+	relPath := c.Query("path")
+
+	siteID, err := strconv.Atoi(siteIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("无效的网站ID"))
+		return
+	}
+
+	basePath, err := fileBasePath(siteID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, models.ErrorResponse("网站不存在"))
+		return
+	}
+
+	fullPath := filepath.Join(basePath, relPath)
+	fullPath = filepath.Clean(fullPath)
+	if !strings.HasPrefix(fullPath, filepath.Clean(basePath)) {
+		c.JSON(http.StatusForbidden, models.ErrorResponse("路径越权"))
+		return
+	}
+
+	info, err := os.Stat(fullPath)
+	if err != nil {
+		c.JSON(http.StatusNotFound, models.ErrorResponse("路径不存在"))
+		return
+	}
+
+	zipName := info.Name() + ".zip"
+	zipPath := filepath.Join(filepath.Dir(fullPath), zipName)
+	zipFile, err := os.Create(zipPath)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("创建压缩文件失败"))
+		return
+	}
+	defer zipFile.Close()
+
+	w := zip.NewWriter(zipFile)
+	defer w.Close()
+
+	baseDir := filepath.Dir(fullPath)
+
+	if info.IsDir() {
+		filepath.Walk(fullPath, func(path string, fi os.FileInfo, err error) error {
+			if err != nil {
+				return nil
+			}
+			rel, _ := filepath.Rel(baseDir, path)
+			rel = filepath.ToSlash(rel)
+
+			header, err := zip.FileInfoHeader(fi)
+			if err != nil {
+				return nil
+			}
+			header.Name = rel
+			header.Method = zip.Deflate
+
+			if fi.IsDir() {
+				header.Name += "/"
+				w.CreateHeader(header)
+				return nil
+			}
+
+			writer, err := w.CreateHeader(header)
+			if err != nil {
+				return nil
+			}
+			f, err := os.Open(path)
+			if err != nil {
+				return nil
+			}
+			defer f.Close()
+			io.Copy(writer, f)
+			return nil
+		})
+	} else {
+		header, err := zip.FileInfoHeader(info)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse("压缩失败"))
+			return
+		}
+		header.Name = info.Name()
+		header.Method = zip.Deflate
+
+		writer, err := w.CreateHeader(header)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse("压缩失败"))
+			return
+		}
+		f, err := os.Open(fullPath)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, models.ErrorResponse("压缩失败"))
+			return
+		}
+		defer f.Close()
+		io.Copy(writer, f)
+	}
+
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"message": fmt.Sprintf("已压缩为 %s", zipName)}))
+}
+
+func (h *FileHandler) Decompress(c *gin.Context) {
+	siteIDStr := c.Query("site_id")
+	relPath := c.Query("path")
+
+	siteID, err := strconv.Atoi(siteIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("无效的网站ID"))
+		return
+	}
+
+	basePath, err := fileBasePath(siteID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, models.ErrorResponse("网站不存在"))
+		return
+	}
+
+	fullPath := filepath.Join(basePath, relPath)
+	fullPath = filepath.Clean(fullPath)
+	if !strings.HasPrefix(fullPath, filepath.Clean(basePath)) {
+		c.JSON(http.StatusForbidden, models.ErrorResponse("路径越权"))
+		return
+	}
+
+	if !strings.HasSuffix(strings.ToLower(fullPath), ".zip") {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("仅支持解压 .zip 文件"))
+		return
+	}
+
+	r, err := zip.OpenReader(fullPath)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("打开压缩文件失败"))
+		return
+	}
+	defer r.Close()
+
+	destDir := filepath.Dir(fullPath)
+	cleanRoot := filepath.Clean(basePath)
+	overwrite := c.Query("overwrite") == "1"
+	var conflicts []string
+	for _, f := range r.File {
+		target := filepath.Join(destDir, filepath.FromSlash(f.Name))
+		target = filepath.Clean(target)
+		if !strings.HasPrefix(target, cleanRoot) || !strings.HasPrefix(target, destDir) {
+			c.JSON(http.StatusForbidden, models.ErrorResponse("压缩包包含非法路径: " + f.Name))
+			return
+		}
+		if !f.FileInfo().IsDir() && !overwrite {
+			if _, err := os.Stat(target); err == nil {
+				conflicts = append(conflicts, f.Name)
+			}
+		}
+	}
+	if len(conflicts) > 0 {
+		c.JSON(http.StatusConflict, gin.H{"success": false, "message": "以下文件已存在，确认覆盖？", "conflicts": conflicts})
+		return
+	}
+
+	for _, f := range r.File {
+		target := filepath.Join(destDir, filepath.FromSlash(f.Name))
+		target = filepath.Clean(target)
+		if !strings.HasPrefix(target, cleanRoot) || !strings.HasPrefix(target, destDir) {
+			c.JSON(http.StatusForbidden, models.ErrorResponse("压缩包包含非法路径: " + f.Name))
+			return
+		}
+
+		if f.FileInfo().IsDir() {
+			os.MkdirAll(target, 0755)
+			continue
+		}
+
+		os.MkdirAll(filepath.Dir(target), 0755)
+		src, err := f.Open()
+		if err != nil {
+			continue
+		}
+		dst, err := os.Create(target)
+		if err != nil {
+			src.Close()
+			continue
+		}
+		io.Copy(dst, src)
+		src.Close()
+		dst.Close()
+	}
+
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"message": "解压完成"}))
+}
+
+func (h *FileHandler) Move(c *gin.Context) {
+	var req struct {
+		SiteID   int      `json:"site_id"`
+		SrcPath  string   `json:"src_path"`
+		Names    []string `json:"names"`
+		DestPath string   `json:"dest_path"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || len(req.Names) == 0 {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("参数错误"))
+		return
+	}
+
+basePath, err := fileBasePath(req.SiteID)
+if err != nil {
+		c.JSON(http.StatusNotFound, models.ErrorResponse("网站不存在"))
+		return
+	}
+
+	srcDir := filepath.Join(basePath, req.SrcPath)
+	destDir := filepath.Join(basePath, req.DestPath)
+	srcDir = filepath.Clean(srcDir)
+	destDir = filepath.Clean(destDir)
+	cleanRoot := filepath.Clean(basePath)
+
+	if !strings.HasPrefix(srcDir, cleanRoot) || !strings.HasPrefix(destDir, cleanRoot) {
+		c.JSON(http.StatusForbidden, models.ErrorResponse("路径越权"))
+		return
+	}
+
+	for _, name := range req.Names {
+		src := filepath.Join(srcDir, filepath.Clean(name))
+		dest := filepath.Join(destDir, filepath.Clean(name))
+		if !strings.HasPrefix(src, cleanRoot) || !strings.HasPrefix(dest, cleanRoot) {
+			continue
+		}
+		os.Rename(src, dest)
+	}
+
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"message": fmt.Sprintf("已移动 %d 个项目", len(req.Names))}))
+}
+
+func (h *FileHandler) Copy(c *gin.Context) {
+	var req struct {
+		SiteID   int      `json:"site_id"`
+		SrcPath  string   `json:"src_path"`
+		Names    []string `json:"names"`
+		DestPath string   `json:"dest_path"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || len(req.Names) == 0 {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("参数错误"))
+		return
+	}
+
+basePath, err := fileBasePath(req.SiteID)
+if err != nil {
+		c.JSON(http.StatusNotFound, models.ErrorResponse("网站不存在"))
+		return
+	}
+
+	srcDir := filepath.Join(basePath, req.SrcPath)
+	destDir := filepath.Join(basePath, req.DestPath)
+	srcDir = filepath.Clean(srcDir)
+	destDir = filepath.Clean(destDir)
+	cleanRoot := filepath.Clean(basePath)
+
+	if !strings.HasPrefix(srcDir, cleanRoot) || !strings.HasPrefix(destDir, cleanRoot) {
+		c.JSON(http.StatusForbidden, models.ErrorResponse("路径越权"))
+		return
+	}
+
+	for _, name := range req.Names {
+		src := filepath.Join(srcDir, filepath.Clean(name))
+		dest := filepath.Join(destDir, filepath.Clean(name))
+		if !strings.HasPrefix(src, cleanRoot) || !strings.HasPrefix(dest, cleanRoot) {
+			continue
+		}
+		copyFileOrDir(src, dest)
+	}
+
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"message": fmt.Sprintf("已复制 %d 个项目", len(req.Names))}))
+}
+
+func copyFileOrDir(src, dest string) error {
+	info, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+	if info.IsDir() {
+		os.MkdirAll(dest, info.Mode())
+		entries, err := os.ReadDir(src)
+		if err != nil {
+			return err
+		}
+		for _, e := range entries {
+			copyFileOrDir(filepath.Join(src, e.Name()), filepath.Join(dest, e.Name()))
+		}
+		return nil
+	}
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.Create(dest)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	_, err = io.Copy(out, in)
+	return err
+}
+
+func (h *FileHandler) CreateDir(c *gin.Context) {
+	siteIDStr := c.Query("site_id")
+	relPath := c.DefaultQuery("path", "/")
+
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Name) == "" {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("请输入目录名"))
+		return
+	}
+	name := strings.TrimSpace(req.Name)
+	if strings.ContainsAny(name, "/\\") {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("目录名不能包含路径分隔符"))
+		return
+	}
+
+	siteID, err := strconv.Atoi(siteIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("无效的网站ID"))
+		return
+	}
+
+	basePath, err := fileBasePath(siteID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, models.ErrorResponse("网站不存在"))
+		return
+	}
+
+	fullPath := filepath.Join(basePath, relPath, name)
+	fullPath = filepath.Clean(fullPath)
+	if !strings.HasPrefix(fullPath, filepath.Clean(basePath)) {
+		c.JSON(http.StatusForbidden, models.ErrorResponse("路径越权"))
+		return
+	}
+
+	if err := os.MkdirAll(fullPath, 0755); err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("创建目录失败: "+err.Error()))
+		return
+	}
+
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"message": "目录创建成功"}))
+}
+
+func isDirEmpty(path string) (bool, error) {
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return false, err
+	}
+	return len(entries) == 0, nil
+}

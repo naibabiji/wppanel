@@ -1,0 +1,499 @@
+package executor
+
+import (
+	"encoding/json"
+	"fmt"
+	"net"
+	"os"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/naibabiji/wp-panel/database"
+)
+
+func deployFail2ban(whitelistIPs string, maxRetry, findTime, banTime int) error {
+	jailDir := "/etc/fail2ban/jail.d"
+	filterDir := "/etc/fail2ban/filter.d"
+	os.MkdirAll(jailDir, 0755)
+	os.MkdirAll(filterDir, 0755)
+
+	ignoreIPs := "127.0.0.1/8"
+	if whitelistIPs != "" {
+		for _, ip := range strings.Split(whitelistIPs, "\n") {
+			ip = strings.TrimSpace(ip)
+			if ip != "" {
+				ignoreIPs += " " + ip
+			}
+		}
+	}
+
+	if maxRetry <= 0 {
+		maxRetry = 5
+	}
+	if findTime <= 0 {
+		findTime = 60
+	}
+	if banTime <= 0 {
+		banTime = 600
+	}
+
+	jailConfig := fmt.Sprintf(`# WP Panel Generated — DO NOT EDIT MANUALLY
+[wppanel]
+enabled = true
+filter = wppanel
+action = nftables-multiport[name=wppanel, port="http,https"]
+logpath = /www/wwwlogs/*/access.log
+          /www/wwwlogs/*/error.log
+maxretry = %d
+findtime = %d
+bantime = %d
+ignoreip = %s
+`, maxRetry, findTime, banTime, ignoreIPs)
+
+	if err := os.WriteFile(jailDir+"/wppanel.conf", []byte(jailConfig), 0644); err != nil {
+		return fmt.Errorf("写入 jail 配置失败: %w", err)
+	}
+
+	filterConfig := `# WP Panel Generated — DO NOT EDIT MANUALLY
+[Definition]
+failregex = ^<HOST> .* "POST /wp-login\.php .*" .*$
+            ^<HOST> .* "POST /xmlrpc\.php .*" .*$
+            ^<HOST> .* "POST //xmlrpc\.php .*" .*$
+            ^<HOST> .* ".*" 429 .*$
+            ^<HOST> - - \[.*\] "(GET|POST) .*(\.env|\.git|config\.bak|wp-config\.php|\.sql|\.tar|\.gz|\.zip|\.old|\.swp|\.save|\.DS_Store).*" 404 .*$
+ignoreregex =
+`
+
+	if err := os.WriteFile(filterDir+"/wppanel.conf", []byte(filterConfig), 0644); err != nil {
+		return fmt.Errorf("写入 filter 配置失败: %w", err)
+	}
+
+	_, _ = executeCommand("systemctl", "restart", "fail2ban")
+	return nil
+}
+
+func executeRefreshWhitelist(task *Task) TaskResult {
+	var allIPs []string
+	var details []string
+
+	if cfIPs, err := fetchCloudflareIPs(); err == nil {
+		allIPs = append(allIPs, cfIPs...)
+		details = append(details, fmt.Sprintf("Cloudflare: %d 条", len(cfIPs)))
+	} else {
+		details = append(details, "Cloudflare: 获取失败")
+	}
+	if googleIPs, err := fetchGooglebotIPs(); err == nil {
+		allIPs = append(allIPs, googleIPs...)
+		details = append(details, fmt.Sprintf("Googlebot: %d 条", len(googleIPs)))
+	} else {
+		details = append(details, "Googlebot: 获取失败")
+	}
+	if bingIPs, err := fetchBingbotIPs(); err == nil {
+		allIPs = append(allIPs, bingIPs...)
+		details = append(details, fmt.Sprintf("Bingbot: %d 条", len(bingIPs)))
+	} else {
+		details = append(details, "Bingbot: 获取失败")
+	}
+
+	db := database.GetDB()
+	db.Exec(`UPDATE security_settings SET svalue = ?, updated_at = CURRENT_TIMESTAMP WHERE skey = 'official_whitelist_ips'`,
+		strings.Join(allIPs, "\n"))
+	db.Exec(`UPDATE security_settings SET svalue = datetime('now'), updated_at = CURRENT_TIMESTAMP WHERE skey = 'last_whitelist_update'`)
+
+	ApplyFail2banSettings()
+
+	return TaskResult{
+		Success: true,
+		Message: fmt.Sprintf("共获取 %d 条（%s）", len(allIPs), strings.Join(details, "；")),
+	}
+}
+
+func ApplyFail2banSettings() {
+	db := database.GetDB()
+
+	var officialIPs, customIPs string
+	var maxRetry, findTime, banTime string
+	db.QueryRow(`SELECT svalue FROM security_settings WHERE skey = 'official_whitelist_ips'`).Scan(&officialIPs)
+	db.QueryRow(`SELECT svalue FROM security_settings WHERE skey = 'whitelist_ips'`).Scan(&customIPs)
+	db.QueryRow(`SELECT svalue FROM security_settings WHERE skey = 'fail2ban_maxretry'`).Scan(&maxRetry)
+	db.QueryRow(`SELECT svalue FROM security_settings WHERE skey = 'fail2ban_findtime'`).Scan(&findTime)
+	db.QueryRow(`SELECT svalue FROM security_settings WHERE skey = 'fail2ban_bantime'`).Scan(&banTime)
+
+	mergedIPs := strings.TrimSpace(officialIPs)
+	if customIPs != "" {
+		if mergedIPs != "" {
+			mergedIPs += "\n"
+		}
+		mergedIPs += customIPs
+	}
+
+	mr := parseIntOr(maxRetry, 5)
+	ft := parseIntOr(findTime, 60)
+	bt := parseIntOr(banTime, 600)
+
+	_ = deployFail2ban(mergedIPs, mr, ft, bt)
+	DeployWhitelistTimer()
+}
+
+func SyncFail2banBans() {
+	out, err := executeCommand("fail2ban-client", "status", "wppanel")
+	if err != nil || out == "" {
+		return
+	}
+
+	bannedIPs := parseBannedIPs(out)
+	bannedSet := make(map[string]bool, len(bannedIPs))
+	for _, ip := range bannedIPs {
+		bannedSet[ip] = true
+	}
+
+	nftablesSet := getNftablesPersistIPs()
+
+	db := database.GetDB()
+	now := time.Now()
+
+	for _, ip := range bannedIPs {
+		var count int
+		db.QueryRow("SELECT COUNT(*) FROM firewall_bans WHERE ip_address = ? AND unbanned_at IS NULL", ip).Scan(&count)
+		if count > 0 {
+			continue
+		}
+
+		prevBans, prevMaxLevel := countBanHistory(ip, now)
+		banLevel := 2
+		expiresVal := "datetime('now', '+600 seconds')"
+		reason := "Fail2ban 自动封禁"
+
+		if prevMaxLevel >= 2 || prevBans > 0 {
+			banLevel = 3
+			expiresVal = "datetime('now', '+86400 seconds')"
+			reason = "Fail2ban 自动封禁（24h内重复违规，升级至24小时）"
+
+			l3Count := countLevel3(ip)
+			if l3Count >= 2 {
+				banLevel = 4
+				expiresVal = "NULL"
+				reason = "Fail2ban 自动封禁（高危：累计3次严重违规，永久封禁）"
+			}
+		}
+
+		db.Exec(
+			`INSERT INTO firewall_bans (ip_address, ban_level, reason, source_jail, ban_count, expires_at)
+			 VALUES (?, ?, ?, 'wppanel', ?, `+expiresVal+`)`,
+			ip, banLevel, reason, prevBans+1,
+		)
+
+		if banLevel >= 3 {
+			AddPersistBan(ip)
+		}
+	}
+
+	rows, err := db.Query("SELECT id, ip_address, ban_level, expires_at, is_manual FROM firewall_bans WHERE unbanned_at IS NULL")
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+
+	var expiredIDs []int
+	for rows.Next() {
+		var id, level, isManual int
+		var ip string
+		var expiresAt *time.Time
+		if rows.Scan(&id, &ip, &level, &expiresAt, &isManual) != nil {
+			continue
+		}
+		if bannedSet[ip] {
+			continue
+		}
+		if level >= 3 {
+			if expiresAt == nil || expiresAt.After(now) {
+				if nftablesSet != nil && nftablesSet[ip] {
+					continue
+				}
+				if nftablesSet != nil && !nftablesSet[ip] {
+					expiredIDs = append(expiredIDs, id)
+					continue
+				}
+				AddPersistBan(ip)
+				continue
+			}
+			RemovePersistBan(ip)
+		}
+		expiredIDs = append(expiredIDs, id)
+	}
+
+	for _, id := range expiredIDs {
+		db.Exec("UPDATE firewall_bans SET unbanned_at = datetime('now') WHERE id = ?", id)
+	}
+}
+
+func countBanHistory(ip string, since time.Time) (count int, maxLevel int) {
+	db := database.GetDB()
+	cutoff := since.Add(-24 * time.Hour).Format("2006-01-02 15:04:05")
+	db.QueryRow(
+		"SELECT COUNT(*), COALESCE(MAX(ban_level), 0) FROM firewall_bans WHERE ip_address = ? AND banned_at > ?",
+		ip, cutoff,
+	).Scan(&count, &maxLevel)
+	return
+}
+
+func countLevel3(ip string) int {
+	db := database.GetDB()
+	var c int
+	db.QueryRow("SELECT COUNT(*) FROM firewall_bans WHERE ip_address = ? AND ban_level >= 3", ip).Scan(&c)
+	return c
+}
+
+func EnsurePersistNftables() {
+	executeCommand("bash", "-c",
+		`nft add table ip wppanel_persist 2>/dev/null
+nft add chain ip wppanel_persist input { type filter hook input priority -1\; } 2>/dev/null
+nft add set ip wppanel_persist banned_ips { type ipv4_addr\; } 2>/dev/null
+nft list chain ip wppanel_persist input 2>/dev/null | grep -q "saddr @banned_ips drop" || nft add rule ip wppanel_persist input ip saddr @banned_ips drop`)
+}
+
+func AddPersistBan(ip string) {
+	ip = strings.TrimSpace(ip)
+	if ip == "" {
+		return
+	}
+	if parsed := net.ParseIP(ip); parsed == nil {
+		return
+	}
+	EnsurePersistNftables()
+	executeCommand("bash", "-c", fmt.Sprintf("nft add element ip wppanel_persist banned_ips { %s } 2>/dev/null; true", ip))
+}
+
+func RemovePersistBan(ip string) {
+	ip = strings.TrimSpace(ip)
+	if ip == "" {
+		return
+	}
+	executeCommand("bash", "-c", fmt.Sprintf("nft delete element ip wppanel_persist banned_ips { %s } 2>/dev/null; true", ip))
+}
+
+func getNftablesPersistIPs() map[string]bool {
+	out, err := executeCommand("bash", "-c",
+		`nft list set ip wppanel_persist banned_ips 2>/dev/null | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}'`)
+	if err != nil || out == "" {
+		return nil
+	}
+	ips := make(map[string]bool)
+	for _, ip := range strings.Fields(out) {
+		ips[strings.TrimSpace(ip)] = true
+	}
+	return ips
+}
+
+func parseBannedIPs(status string) []string {
+	var ips []string
+	for _, line := range strings.Split(status, "\n") {
+		idx := strings.Index(line, "Banned IP list:")
+		if idx < 0 {
+			continue
+		}
+		rest := strings.TrimSpace(line[idx+len("Banned IP list:"):])
+		for _, ip := range strings.Fields(rest) {
+			ip = strings.TrimSpace(ip)
+			if ip != "" {
+				ips = append(ips, ip)
+			}
+		}
+	}
+	return ips
+}
+
+func fetchCloudflareIPs() ([]string, error) {
+	var ips []string
+	for _, url := range []string{
+		"https://www.cloudflare.com/ips-v4/",
+		"https://www.cloudflare.com/ips-v6/",
+	} {
+		out, err := executeCommand("curl", "-s", "-f", "-L", url)
+		if err == nil {
+			for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+				line = strings.TrimSpace(line)
+				if line != "" {
+					ips = append(ips, line)
+				}
+			}
+		}
+	}
+	if len(ips) == 0 {
+		return nil, fmt.Errorf("无法获取 Cloudflare IP 段")
+	}
+	return ips, nil
+}
+
+func fetchGooglebotIPs() ([]string, error) {
+	out, err := executeCommand("curl", "-s", "-f", "-L", "https://developers.google.com/search/apis/ipranges/googlebot.json")
+	if err != nil {
+		return nil, err
+	}
+	var data struct {
+		Prefixes []struct {
+			IPv4Prefix string `json:"ipv4Prefix"`
+			IPv6Prefix string `json:"ipv6Prefix"`
+		} `json:"prefixes"`
+	}
+	if err := json.Unmarshal([]byte(out), &data); err != nil {
+		return nil, err
+	}
+	var ips []string
+	for _, p := range data.Prefixes {
+		if p.IPv4Prefix != "" {
+			ips = append(ips, p.IPv4Prefix)
+		}
+		if p.IPv6Prefix != "" {
+			ips = append(ips, p.IPv6Prefix)
+		}
+	}
+	return ips, nil
+}
+
+func fetchBingbotIPs() ([]string, error) {
+	out, err := executeCommand("curl", "-s", "-f", "-L", "https://www.bing.com/toolbox/bingbot.json")
+	if err != nil {
+		return nil, err
+	}
+	var data struct {
+		Prefixes []struct {
+			IPv4Prefix string `json:"ipv4Prefix"`
+			IPv6Prefix string `json:"ipv6Prefix"`
+		} `json:"prefixes"`
+	}
+	if err := json.Unmarshal([]byte(out), &data); err != nil {
+		return nil, err
+	}
+	var ips []string
+	for _, p := range data.Prefixes {
+		if p.IPv4Prefix != "" {
+			ips = append(ips, p.IPv4Prefix)
+		}
+		if p.IPv6Prefix != "" {
+			ips = append(ips, p.IPv6Prefix)
+		}
+	}
+	return ips, nil
+}
+
+func executeManualBan(task *Task) TaskResult {
+	payload, ok := task.Payload.(*ManualBanPayload)
+	if !ok {
+		return TaskResult{Success: false, Message: "任务参数类型错误"}
+	}
+
+	ip := strings.TrimSpace(payload.IP)
+	if ip == "" {
+		return TaskResult{Success: false, Message: "IP 地址不能为空"}
+	}
+
+	out, err := executeCommand("fail2ban-client", "set", "wppanel", "banip", ip)
+	if err != nil {
+		return TaskResult{Success: false, Message: "封禁失败: " + out}
+	}
+
+	db := database.GetDB()
+	banLevel := 2
+	duration := 600
+	if payload.Duration == 3600 {
+		duration = 3600
+		banLevel = 3
+	} else if payload.Duration == 86400 {
+		duration = 86400
+		banLevel = 3
+	} else if payload.Duration == 0 {
+		duration = -1
+		banLevel = 4
+	}
+
+	var expires interface{}
+	if duration < 0 {
+		expires = nil
+	} else {
+		expires = time.Now().Add(time.Duration(duration) * time.Second)
+	}
+
+	db.Exec(
+		`INSERT INTO firewall_bans (ip_address, ban_level, reason, source_jail, is_manual, ban_count, expires_at)
+		 VALUES (?, ?, '管理员手动封禁', 'wppanel', 1, 1, ?)`,
+		ip, banLevel, expires,
+	)
+
+	if banLevel >= 3 {
+		AddPersistBan(ip)
+	}
+
+	msg := fmt.Sprintf("IP %s 已封禁", ip)
+	if payload.Duration == 0 {
+		msg += "（永久）"
+	} else if payload.Duration >= 3600 {
+		msg += fmt.Sprintf("（%d 小时）", payload.Duration/3600)
+	} else {
+		msg += fmt.Sprintf("（%d 分钟）", payload.Duration/60)
+	}
+
+	return TaskResult{Success: true, Message: msg}
+}
+
+func parseIntOr(s string, def int) int {
+	if n, err := strconv.Atoi(s); err == nil {
+		return n
+	}
+	return def
+}
+
+func RunWhitelistRefresh() string {
+	return executeRefreshWhitelist(&Task{ID: "cli-refresh", Type: TaskRefreshWhitelist}).Message
+}
+
+func DeployWhitelistTimer() {
+	timerUnit := `[Unit]
+Description=WP Panel Weekly Whitelist Refresh
+Requires=wppanel-whitelist.service
+
+[Timer]
+OnCalendar=Mon *-*-* 04:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+`
+
+	serviceUnit := `[Unit]
+Description=WP Panel Whitelist Refresh
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/wp-panel --refresh-whitelist --config=/www/server/panel/config.json
+`
+
+	os.WriteFile("/etc/systemd/system/wppanel-whitelist.timer", []byte(timerUnit), 0644)
+	os.WriteFile("/etc/systemd/system/wppanel-whitelist.service", []byte(serviceUnit), 0644)
+	executeCommand("systemctl", "daemon-reload")
+	executeCommand("systemctl", "enable", "wppanel-whitelist.timer")
+	executeCommand("systemctl", "start", "wppanel-whitelist.timer")
+}
+
+func UnbanAllIPs() string {
+	db := database.GetDB()
+
+	unbanned, _ := db.Exec("UPDATE firewall_bans SET unbanned_at = datetime('now') WHERE unbanned_at IS NULL")
+	unbanCount := int64(0)
+	if unbanned != nil {
+		unbanCount, _ = unbanned.RowsAffected()
+	}
+
+	executeCommand("bash", "-c", "nft flush set ip wppanel_persist banned_ips 2>/dev/null; true")
+
+	out, err := executeCommand("fail2ban-client", "status", "wppanel")
+	if err == nil && out != "" {
+		bannedIPs := parseBannedIPs(out)
+		for _, ip := range bannedIPs {
+			executeCommand("fail2ban-client", "set", "wppanel", "unbanip", ip)
+		}
+	}
+
+	return fmt.Sprintf("已清空所有封禁规则，共解封 %d 条记录", unbanCount)
+}

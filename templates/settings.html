@@ -1,0 +1,276 @@
+{{template "base" .}}
+{{define "settings_content"}}
+<div x-data="panelSettings()" x-init="fetchSettings()">
+    <h2 class="text-xl font-bold text-white mb-6">面板设置</h2>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mb-6">
+        <div class="card">
+            <h3 class="text-lg font-semibold text-white mb-4">账户安全</h3>
+
+            <div class="mb-4 p-3 rounded" style="background-color: #0f172a;">
+                <p class="text-xs text-blue-400 font-medium mb-2">BasicAuth 认证</p>
+                <p class="text-xs text-gray-500 mb-3">随机路径入口的第一层认证，浏览器弹窗式登录</p>
+                <div class="mb-3">
+                    <label class="text-xs text-gray-400">用户名</label>
+                    <input type="text" x-model="basicAuthUser" class="input-field text-sm py-1.5 mt-1">
+                </div>
+                <div>
+                    <label class="text-xs text-gray-400">密码（至少8位，留空不修改）</label>
+                    <input type="password" x-model="pw.basic" class="input-field text-sm py-1.5 mt-1" placeholder="留空则不修改" autocomplete="new-password">
+                </div>
+            </div>
+
+            <div class="mb-4 p-3 rounded" style="background-color: #0f172a;">
+                <p class="text-xs text-green-400 font-medium mb-2">面板 Web 登录</p>
+                <p class="text-xs text-gray-500 mb-3">BasicAuth 通过后显示的 Web 表单登录</p>
+                <div class="mb-3">
+                    <label class="text-xs text-gray-400">用户名</label>
+                    <input type="text" x-model="username" class="input-field text-sm py-1.5 mt-1">
+                </div>
+                <div>
+                    <label class="text-xs text-gray-400">密码（至少8位，留空不修改）</label>
+                    <input type="password" x-model="pw.old" class="input-field text-sm py-1.5 mt-1" placeholder="当前密码（修改密码时必填）" autocomplete="current-password">
+                    <div class="flex space-x-2 mt-2">
+                        <input type="password" x-model="pw.new1" class="input-field flex-1 text-sm py-1.5" placeholder="新密码（至少8位）" autocomplete="new-password">
+                        <input type="password" x-model="pw.new2" class="input-field flex-1 text-sm py-1.5" placeholder="确认新密码">
+                    </div>
+                </div>
+            </div>
+
+            <button @click="saveAccount" :disabled="accountSaving" class="btn-primary w-full" x-text="accountSaving ? '保存中...' : '保存账户设置'"></button>
+            <p class="text-xs text-yellow-400 mt-2" x-show="accountSaved">已保存，正在退出登录...</p>
+        </div>
+
+        <div class="card">
+            <h3 class="text-lg font-semibold text-white mb-4">服务器设置</h3>
+
+            <div class="mb-4">
+                <label class="label">面板标题</label>
+                <div class="flex space-x-2">
+                    <input type="text" x-model="panelTitle" class="input-field flex-1">
+                    <button @click="saveBasic" class="btn-primary text-sm">保存</button>
+                </div>
+            </div>
+
+            <div class="mb-4">
+                <label class="label">时区</label>
+                <select x-model="timezone" @change="saveServerSetting('timezone', timezone)" class="input-field">
+                    <option value="Asia/Shanghai">Asia/Shanghai (UTC+8)</option>
+                    <option value="Asia/Tokyo">Asia/Tokyo (UTC+9)</option>
+                    <option value="Asia/Singapore">Asia/Singapore (UTC+8)</option>
+                    <option value="Asia/Hong_Kong">Asia/Hong_Kong (UTC+8)</option>
+                    <option value="America/New_York">America/New_York (UTC-5)</option>
+                    <option value="America/Los_Angeles">America/Los_Angeles (UTC-8)</option>
+                    <option value="America/Chicago">America/Chicago (UTC-6)</option>
+                    <option value="Europe/London">Europe/London (UTC+0)</option>
+                    <option value="Europe/Berlin">Europe/Berlin (UTC+1)</option>
+                    <option value="Europe/Paris">Europe/Paris (UTC+1)</option>
+                    <option value="Australia/Sydney">Australia/Sydney (UTC+10)</option>
+                    <option value="UTC">UTC</option>
+                </select>
+                <div class="flex items-center justify-between mt-1">
+                    <p class="text-xs text-gray-400">服务器时间：<span x-text="serverTime" class="text-white font-mono"></span></p>
+                    <div class="flex items-center space-x-2">
+                        <span class="text-xs" :class="ntpSynced ? 'text-green-400' : 'text-yellow-400'" x-text="ntpSynced ? 'NTP 已同步' : 'NTP 未同步'"></span>
+                        <button @click="syncNTP()" class="text-xs py-0.5 px-2 rounded" style="background-color: #1e3a5f; color: #93c5fd;">同步</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="mb-4">
+                <label class="label">主机名</label>
+                <div class="flex space-x-2">
+                    <input type="text" x-model="hostname" class="input-field flex-1">
+                    <button @click="saveServerSetting('hostname', hostname)" :disabled="!hostname" class="btn-primary text-sm">保存</button>
+                </div>
+            </div>
+
+            <hr class="my-4 border-gray-700">
+
+            <div x-data="versionCheck()" x-init="fetchVersion()">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-sm text-gray-400">面板版本</span>
+                    <span class="text-sm text-white font-mono" x-text="currentVersion"></span>
+                </div>
+                <div x-show="hasUpdate" class="mb-3 p-3 rounded" style="background-color: #064e3b; border: 1px solid #059669;">
+                    <p class="text-sm text-green-300">新版本 <span x-text="latestVersion" class="font-bold"></span> 可用</p>
+                    <pre x-text="releaseNotes" class="text-xs text-gray-400 mt-2 max-h-32 overflow-y-auto whitespace-pre-wrap"></pre>
+                </div>
+                <div class="flex items-center space-x-3">
+                    <button @click="checkUpdate()" :disabled="checking" class="btn-secondary text-xs" x-text="checking ? '检查中...' : '检查更新'"></button>
+                    <button @click="doUpdate()" x-show="hasUpdate" :disabled="updating" class="btn-primary text-xs" x-text="updating ? '更新中...' : '立即更新'"></button>
+                </div>
+                <p x-show="updateError" class="text-xs text-red-400 mt-2" x-text="updateError"></p>
+            </div>
+        </div>
+    </div>
+
+    <div class="card" x-data="operationLogs()" x-init="fetchLogs()">
+        <h3 class="text-lg font-semibold text-white mb-4">最近操作日志</h3>
+        <div class="overflow-x-auto">
+            <table class="w-full">
+                <thead class="border-b border-gray-700">
+                    <tr>
+                        <th class="table-header">时间</th>
+                        <th class="table-header">操作</th>
+                        <th class="table-header">目标</th>
+                        <th class="table-header">状态</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <template x-for="log in logs" :key="log.id">
+                        <tr class="border-b border-gray-700/50">
+                            <td class="table-cell text-xs" x-text="fmtTime(log.created_at)"></td>
+                            <td class="table-cell text-sm" x-text="log.operation"></td>
+                            <td class="table-cell text-sm" x-text="log.target || '--'"></td>
+                            <td class="table-cell">
+                                <span :class="log.status === 'success' ? 'badge-success' : 'badge-danger'"
+                                      x-text="log.status === 'success' ? '成功' : '失败'"></span>
+                            </td>
+                        </tr>
+                    </template>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+function panelSettings() {
+    return {
+        panelTitle: 'WP Panel',
+        username: '',
+        basicAuthUser: '',
+        timezone: '',
+        hostname: '',
+        serverTime: '',
+        ntpSynced: false,
+        accountSaving: false,
+        accountSaved: false,
+        pw: { old: '', new1: '', new2: '', basic: '' },
+        async fetchSettings() {
+            try {
+                const r = await api('/settings');
+                if (r.success) {
+                    this.panelTitle = r.data.panel_title || 'WP Panel';
+                    this.username = r.data.username || '';
+                    this.basicAuthUser = r.data.basic_auth_user || '';
+                    this.timezone = r.data.timezone || '';
+                    this.hostname = r.data.hostname || '';
+                    this.ntpSynced = r.data.ntp_synced || false;
+                }
+            } catch(e) {}
+            this.tickTime();
+            setInterval(() => this.tickTime(), 1000);
+        },
+        tickTime() {
+            const tz = this.timezone || 'UTC';
+            const d = new Date();
+            const opts = { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false };
+            this.serverTime = d.toLocaleString('zh-CN', opts);
+        },
+        async saveAccount() {
+            const body = {};
+
+            if (this.basicAuthUser) body.basic_auth_user = this.basicAuthUser;
+            if (this.pw.basic && this.pw.basic.length >= 8) body.basic_auth_password = this.pw.basic;
+            else if (this.pw.basic && this.pw.basic.length < 8) { showToast('BasicAuth 密码至少8位', 'error'); return; }
+
+            if (this.username) body.username = this.username;
+            if (this.pw.new1 || this.pw.new2) {
+                if (!this.pw.old) { showToast('修改 Web 密码需输入当前密码', 'error'); return; }
+                if (this.pw.new1 !== this.pw.new2) { showToast('两次密码不一致', 'error'); return; }
+                if (this.pw.new1.length < 8) { showToast('新密码至少8位', 'error'); return; }
+                body.old_password = this.pw.old;
+                body.new_password = this.pw.new1;
+            }
+
+            if (Object.keys(body).length === 0) { showToast('无修改内容', 'info'); return; }
+
+            this.accountSaving = true;
+            try {
+                await api('/settings', { method: 'PUT', body });
+                this.accountSaved = true;
+                this.pw = { old: '', new1: '', new2: '', basic: '' };
+                showToast('账户设置已保存，即将退出登录', 'success');
+                setTimeout(async () => {
+                    try { await api('/auth/logout', { method: 'POST' }); } catch(e) {}
+                    window.location.href = (document.body.dataset.panelPrefix || '') + '/login';
+                }, 1500);
+            } catch(e) { showToast(e.message, 'error'); this.accountSaving = false; }
+        },
+        async syncNTP() {
+            try {
+                const r = await api('/settings', { method: 'PUT', body: { ntp_sync: true } });
+                showToast(r.data?.message || '时间同步已触发', 'success');
+                this.ntpSynced = true;
+            } catch(e) { showToast(e.message, 'error'); }
+        },
+        async saveBasic() {
+            try {
+                await api('/settings', { method: 'PUT', body: { panel_title: this.panelTitle } });
+                showToast('已保存', 'success');
+            } catch(e) { showToast(e.message, 'error'); }
+        },
+        async saveServerSetting(key, val) {
+            try {
+                const body = {};
+                body[key] = val;
+                await api('/settings', { method: 'PUT', body });
+                showToast('已更新', 'success');
+            } catch(e) { showToast(e.message, 'error'); }
+        }
+    }
+}
+function versionCheck() {
+    return {
+        currentVersion: "",
+        latestVersion: "",
+        releaseNotes: "",
+        hasUpdate: false,
+        checking: false,
+        updating: false,
+        updateError: "",
+        async fetchVersion() {
+            try {
+                const r = await api("/update/check");
+                if (r.success) {
+                    this.currentVersion = r.data.current_version;
+                    this.latestVersion = r.data.latest_version || "";
+                    this.releaseNotes = r.data.release_notes || "";
+                    this.hasUpdate = r.data.has_update;
+                    if (r.data.error) this.updateError = r.data.error;
+                }
+            } catch(e) {}
+        },
+        async checkUpdate() {
+            this.checking = true;
+            this.updateError = "";
+            await this.fetchVersion();
+            if (!this.hasUpdate && !this.updateError) showToast("已是最新版本", "success");
+            this.checking = false;
+        },
+        async doUpdate() {
+            if (!await confirmModal("确认更新到 " + this.latestVersion + "？更新期间面板将短暂不可用。")) return;
+            this.updating = true;
+            try {
+                const r = await api("/update/do", { method: "POST" });
+                showToast(r.data?.message || "更新已启动", "success");
+                this.updateError = "更新完成，面板正在重启，3 秒后自动刷新...";
+                setTimeout(() => { location.reload(); }, 3000);
+            } catch(e) { showToast(e.message, "error"); this.updating = false; }
+        }
+    }
+}
+
+
+function operationLogs() {
+    return {
+        logs: [],
+        async fetchLogs() {
+            try { const r = await api('/settings/logs'); if (r.success) this.logs = r.data || []; } catch(e) {}
+        }
+    }
+}
+</script>
+{{end}}

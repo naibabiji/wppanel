@@ -1,0 +1,183 @@
+{{template "base" .}}
+{{define "alert_content"}}
+<div x-data="alertManager()" x-init="fetchAll()">
+    <h2 class="text-xl font-bold text-white mb-6">告警通知</h2>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mb-6">
+        <div class="card" x-data="smtpConfig()" x-init="fetch()">
+            <h3 class="text-lg font-semibold text-white mb-4">SMTP 邮件配置</h3>
+            <div class="mb-3">
+                <label class="text-sm text-gray-300 mb-1 block">SMTP 服务器</label>
+                <input type="text" x-model="cfg.smtp_host" class="input-field text-sm">
+            </div>
+            <div class="mb-3">
+                <label class="text-sm text-gray-300 mb-1 block">端口</label>
+                <input type="text" x-model="cfg.smtp_port" class="input-field text-sm">
+            </div>
+            <div class="mb-3">
+                <label class="text-sm text-gray-300 mb-1 block">加密方式</label>
+                <select x-model="cfg.smtp_encryption" class="input-field text-sm">
+                    <option value="starttls">STARTTLS</option>
+                    <option value="ssl">SSL</option>
+                    <option value="none">无</option>
+                </select>
+            </div>
+            <div class="mb-3">
+                <label class="text-sm text-gray-300 mb-1 block">发件邮箱</label>
+                <input type="text" x-model="cfg.smtp_user" class="input-field text-sm">
+            </div>
+            <div class="mb-3">
+                <label class="text-sm text-gray-300 mb-1 block">密码/授权码</label>
+                <input type="password" x-model="cfg.smtp_pass" class="input-field text-sm">
+            </div>
+            <div class="mb-3">
+                <label class="text-sm text-gray-300 mb-1 block">管理员通知邮箱</label>
+                <input type="text" x-model="cfg.admin_email" class="input-field text-sm" placeholder="admin@example.com">
+            </div>
+            <div class="flex space-x-3">
+                <button @click="save" :disabled="saving" class="btn-primary text-sm" x-text="saving ? '保存中...' : '保存'"></button>
+                <button @click="test" :disabled="testing" class="btn-secondary text-sm" x-text="testing ? '发送中...' : '测试发送'"></button>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3 class="text-lg font-semibold text-white mb-4">告警规则</h3>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+                <label class="flex items-center space-x-2 text-sm text-gray-300 cursor-pointer mb-3">
+                    <input type="checkbox" x-model="rules.alert_cpu" @change="save">
+                    <span>CPU > 80% 持续 5 分钟</span>
+                </label>
+                <label class="flex items-center space-x-2 text-sm text-gray-300 cursor-pointer mb-3">
+                    <input type="checkbox" x-model="rules.alert_memory" @change="save">
+                    <span>内存 > 90% 持续 5 分钟</span>
+                </label>
+                <label class="flex items-center space-x-2 text-sm text-gray-300 cursor-pointer mb-3">
+                    <input type="checkbox" x-model="rules.alert_disk" @change="save">
+                    <span>磁盘 > 90%</span>
+                </label>
+            </div>
+            <div>
+                <label class="flex items-center space-x-2 text-sm text-gray-300 cursor-pointer mb-3">
+                    <input type="checkbox" x-model="rules.alert_service" @change="save">
+                    <span>服务进程异常重启</span>
+                </label>
+                <label class="flex items-center space-x-2 text-sm text-gray-300 cursor-pointer mb-3">
+                    <input type="checkbox" x-model="rules.alert_ssl" @change="save">
+                    <span>SSL 证书即将到期（14天内）</span>
+                </label>
+                <label class="flex items-center space-x-2 text-sm text-gray-300 cursor-pointer mb-3">
+                    <input type="checkbox" x-model="rules.alert_backup" @change="save">
+                    <span>数据库备份失败</span>
+                </label>
+                <label class="flex items-center space-x-2 text-sm text-gray-300 cursor-pointer mb-3">
+                    <input type="checkbox" x-model="rules.alert_website_expiry" @change="save">
+                    <span>网站即将到期（14天内）</span>
+                </label>
+            </div>
+        </div>
+        <p class="text-xs text-gray-500 mt-2">报警每 30 分钟最多发送一次。异常恢复后将发送恢复通知。</p>
+    </div>
+    </div>
+
+    <div class="card">
+        <h3 class="text-lg font-semibold text-white mb-4">告警记录（最近30条）</h3>
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead class="border-b border-gray-700 text-gray-400">
+                    <tr>
+                        <th class="py-2 text-left">时间</th>
+                        <th class="py-2 text-left">类型</th>
+                        <th class="py-2 text-left">级别</th>
+                        <th class="py-2 text-left">内容</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-800">
+                    <template x-for="l in logs" :key="l.id">
+                        <tr>
+                            <td class="py-2 text-xs text-gray-400" x-text="fmtTime(l.created_at)"></td>
+                            <td class="py-2 text-sm text-gray-300" x-text="typeLabel(l.alert_type)"></td>
+                            <td class="py-2">
+                                <span x-show="l.level === 'critical'" class="text-red-400 text-xs">● 告警</span>
+                                <span x-show="l.level === 'info'" class="text-green-400 text-xs">● 恢复</span>
+                            </td>
+                            <td class="py-2 text-sm text-gray-400" x-text="l.message"></td>
+                        </tr>
+                    </template>
+                    <tr x-show="logs.length === 0">
+                        <td colspan="4" class="py-6 text-center text-gray-500">暂无告警记录</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+function smtpConfig() {
+    return {
+        cfg: {},
+        saving: false,
+        testing: false,
+        async fetch() {
+            try { const r = await api('/alert/settings'); if (r.success) this.cfg = r.data || {}; } catch(e) {}
+        },
+        async save() {
+            this.saving = true;
+            try {
+                await api('/alert/settings', { method: 'PUT', body: this.cfg });
+                showToast('SMTP 配置已保存', 'success');
+            } catch(e) { showToast(e.message, 'error'); }
+            this.saving = false;
+        },
+        async test() {
+            this.testing = true;
+            try {
+                const r = await api('/alert/test-smtp', { method: 'POST', body: { email: this.cfg.admin_email || '' } });
+                showToast(r.data?.message || '发送成功', 'success');
+            } catch(e) { showToast(e.message || '发送失败', 'error'); }
+            this.testing = false;
+        }
+    }
+}
+
+function alertManager() {
+    return {
+        rules: {},
+        logs: [],
+        async fetchAll() {
+            try {
+                const r = await api('/alert/settings');
+                if (r.success) {
+                    const d = r.data || {};
+                    for (const k of Object.keys(d)) {
+                        if (k.startsWith('alert_')) d[k] = d[k] !== 'false';
+                    }
+                    this.rules = d;
+                }
+            } catch(e) {}
+            this.fetchLog();
+        },
+        async save() {
+            try {
+                const body = {};
+                for (const k of Object.keys(this.rules)) {
+                    body[k] = this.rules[k] ? 'true' : 'false';
+                }
+                await api('/alert/settings', { method: 'PUT', body });
+            } catch(e) {}
+        },
+        async fetchLog() {
+            try {
+                const r = await api('/alert/log');
+                if (r.success) this.logs = r.data || [];
+            } catch(e) {}
+        },
+        typeLabel(t) {
+            const m = { alert_cpu: 'CPU高负载', alert_memory: '内存过高', alert_disk: '磁盘不足', alert_service: '服务异常', alert_ssl: 'SSL到期', alert_backup: '备份失败', alert_website_expiry: '网站到期', alert_site: '网站不可用' };
+            return m[t] || t;
+        }
+    }
+}
+</script>
+{{end}}

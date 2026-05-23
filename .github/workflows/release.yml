@@ -1,0 +1,71 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+
+      - name: Prepare static assets
+        run: |
+          mkdir -p static/css static/js bin
+
+          curl -sSL "https://cdn.jsdelivr.net/npm/alpinejs@3.13.7/dist/cdn.min.js" -o static/js/alpine.min.js
+          curl -sSL "https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" -o static/js/chart.min.js
+
+          TAILWIND_VERSION="v3.4.4"
+          curl -sSL "https://github.com/tailwindlabs/tailwindcss/releases/download/${TAILWIND_VERSION}/tailwindcss-linux-x64" -o bin/tailwindcss
+          chmod +x bin/tailwindcss
+          bin/tailwindcss -i input.css -o static/css/main.css --minify
+
+      - name: Build binary
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          BUILD_TIME=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+          CGO_ENABLED=0 go build -ldflags "-s -w -X main.Version=${VERSION} -X main.BuildTime=${BUILD_TIME}" -o wp-panel .
+
+      - name: Generate SHA256
+        run: sha256sum wp-panel > wp-panel.sha256
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          body: |
+            WP Panel — WordPress 专用服务器管理面板。
+
+            ### 主要功能
+            - 一键建站（自动创建隔离用户/Nginx/PHP-FPM/数据库）
+            - SSL 证书管理（Let's Encrypt 自动申请/续期）
+            - FastCGI 全站缓存 + WordPress 配套插件
+            - Fail2ban + nftables 双机制渐进封禁
+            - 数据库备份/恢复/自动备份
+            - 计划任务（自定义命令/文件备份/WP Cron）
+            - 文件管理器（上传/下载/压缩/解压/剪切/复制/粘贴）
+            - 仪表盘监控（CPU/内存/磁盘/负载实时）
+            - SMTP 邮件告警通知
+            - 面板内一键版本更新
+
+            ### 安装
+            ```bash
+            apt-get update && apt-get install -y wget ca-certificates && wget -qO- https://raw.githubusercontent.com/naibabiji/wp-panel/main/install.sh | bash
+            ```
+          files: |
+            wp-panel
+            wp-panel.sha256
+          generate_release_notes: false

@@ -1,0 +1,97 @@
+{{template "base" .}}
+{{define "websites_new_content"}}
+<div x-data="createWebsite()">
+    <h2 class="text-xl font-bold text-white mb-6">创建网站</h2>
+    <div class="card max-w-2xl">
+        <form @submit.prevent="submit">
+            <div class="mb-4">
+                <label class="label">主域名</label>
+                <input type="text" x-model="domain" class="input-field" placeholder="example.com" required>
+            </div>
+            <div class="mb-4">
+                <label class="label">附加域名（一行一个）</label>
+                <textarea x-model="aliases" class="input-field" rows="3" placeholder="www.example.com"></textarea>
+            </div>
+            <div class="mb-4">
+                <label class="label">数据库密码</label>
+                <div class="flex space-x-2">
+                    <input type="text" x-model="dbPassword" class="input-field flex-1" placeholder="留空自动生成随机密码">
+                    <button type="button" @click="generatePassword()" class="btn-secondary">生成随机密码</button>
+                </div>
+            </div>
+            <div class="mb-4">
+                <label class="label">网站到期时间（可选）</label>
+                <input type="date" x-model="expiresAt" class="input-field">
+                <p class="text-xs text-gray-500 mt-1">留空则永不到期。到期前14天/7天/1天通过告警邮件提醒。</p>
+            </div>
+            <div class="mb-6">
+                <label class="flex items-center space-x-2 cursor-pointer">
+                    <input type="checkbox" x-model="sslEnabled" class="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-600 focus:ring-blue-500">
+                    <span class="text-gray-300">同时申请免费 Let's Encrypt SSL 证书</span>
+                </label>
+            </div>
+
+            <div x-show="error" class="mb-4 p-3 bg-red-900/50 border border-red-700 rounded-lg text-red-300 text-sm"
+                 x-text="error"></div>
+            <div x-show="success" class="mb-4 p-3 bg-green-900/50 border border-green-700 rounded-lg text-green-300 text-sm"
+                 x-text="success"></div>
+
+            <button type="submit" class="btn-primary" :disabled="loading || !domain">
+                <span x-show="!loading">创建网站</span>
+                <span x-show="loading">正在创建...</span>
+            </button>
+        </form>
+    </div>
+</div>
+
+<script>
+function createWebsite() {
+    return {
+        domain: '',
+        aliases: '',
+        dbPassword: '',
+        sslEnabled: false,
+        expiresAt: '',
+        loading: false,
+        error: '',
+        success: '',
+        generatePassword() {
+            const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
+            let pw = '';
+            for (let i = 0; i < 24; i++) pw += chars[Math.floor(Math.random() * chars.length)];
+            this.dbPassword = pw;
+        },
+        async submit() {
+            this.loading = true;
+            this.error = '';
+            this.success = '';
+            try {
+                const aliasesList = this.aliases.split('\n').map(s => s.trim()).filter(Boolean);
+                const resp = await api('/websites', {
+                    method: 'POST',
+                    body: {
+                        domain: this.domain.trim(),
+                        aliases: aliasesList,
+                        db_password: this.dbPassword,
+                        ssl_enabled: this.sslEnabled,
+                        expires_at: this.expiresAt || null
+                    }
+                });
+                if (resp.success) {
+                    this.success = '网站 ' + this.domain + ' 创建成功！';
+                    this.domain = '';
+                    this.aliases = '';
+                    this.dbPassword = '';
+                    this.sslEnabled = false;
+                    setTimeout(() => { window.location.href = '/' + document.body.dataset.panelPrefix.replace('/', '') + '/websites'; }, 2000);
+                }
+            } catch (e) {
+                this.error = e.message;
+            } finally {
+                this.loading = false;
+            }
+        }
+    }
+}
+</script>
+{{end}}
