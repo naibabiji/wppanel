@@ -64,11 +64,11 @@ func queryMetrics(r string) ([]string, []float64, []float64, []float64) {
 
 	switch r {
 	case "24h":
-		since = time.Now().Add(-24 * time.Hour).Format("2006-01-02 15:04:05")
+		since = time.Now().UTC().Add(-24 * time.Hour).Format("2006-01-02 15:04:05")
 	case "7d":
-		since = time.Now().Add(-7 * 24 * time.Hour).Format("2006-01-02 15:04:05")
+		since = time.Now().UTC().Add(-7 * 24 * time.Hour).Format("2006-01-02 15:04:05")
 	case "15d":
-		since = time.Now().Add(-15 * 24 * time.Hour).Format("2006-01-02 15:04:05")
+		since = time.Now().UTC().Add(-15 * 24 * time.Hour).Format("2006-01-02 15:04:05")
 	default:
 		return nil, nil, nil, nil
 	}

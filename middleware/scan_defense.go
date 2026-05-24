@@ -60,7 +60,7 @@ func banScanIP(db *sql.DB, ip string, reason string, hours int) {
 		return
 	}
 
-	expires := time.Now().Add(time.Duration(hours) * time.Hour).Format("2006-01-02 15:04:05")
+	expires := time.Now().UTC().Add(time.Duration(hours) * time.Hour).Format("2006-01-02 15:04:05")
 	_, err := db.Exec(
 		`INSERT INTO firewall_bans (ip_address, ban_level, reason, source_jail, banned_at, expires_at, ban_count)
 		 VALUES (?, 4, ?, 'panel_scan', datetime('now'), ?, 1)`,

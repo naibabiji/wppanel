@@ -57,7 +57,7 @@ func (t *LoginAttemptTracker) IsBanned(ip string) bool {
 
 func (t *LoginAttemptTracker) countRecent(ip string) int {
 	var count int
-	cutoff := time.Now().Add(-t.AttemptWindow).Format("2006-01-02 15:04:05")
+	cutoff := time.Now().UTC().Add(-t.AttemptWindow).Format("2006-01-02 15:04:05")
 	err := t.DB.QueryRow(
 		`SELECT COUNT(*) FROM login_attempts
 		 WHERE ip_address = ? AND created_at > ?`,
@@ -71,7 +71,7 @@ func (t *LoginAttemptTracker) countRecent(ip string) int {
 
 func (t *LoginAttemptTracker) banIP(ip string, attemptType string) {
 	reason := fmt.Sprintf("panel_%s: 连续%d次认证失败", attemptType, t.MaxAttempts)
-	expiresAt := time.Now().Add(time.Duration(t.BanDurationHours) * time.Hour).Format("2006-01-02 15:04:05")
+	expiresAt := time.Now().UTC().Add(time.Duration(t.BanDurationHours) * time.Hour).Format("2006-01-02 15:04:05")
 
 	_, _ = t.DB.Exec(
 		`INSERT INTO firewall_bans (ip_address, ban_level, reason, source_jail, expires_at, ban_count)
@@ -86,6 +86,6 @@ func (t *LoginAttemptTracker) banIP(ip string, attemptType string) {
 }
 
 func (t *LoginAttemptTracker) CleanupOldAttempts() {
-	cutoff := time.Now().Add(-t.AttemptWindow).Format("2006-01-02 15:04:05")
+	cutoff := time.Now().UTC().Add(-t.AttemptWindow).Format("2006-01-02 15:04:05")
 	_, _ = t.DB.Exec("DELETE FROM login_attempts WHERE created_at < ?", cutoff)
 }

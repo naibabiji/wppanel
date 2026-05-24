@@ -32,7 +32,7 @@ func cleanup() {
 	if db == nil {
 		return
 	}
-	cutoff := time.Now().Add(-15 * 24 * time.Hour).Format("2006-01-02 15:04:05")
+	cutoff := time.Now().UTC().Add(-15 * 24 * time.Hour).Format("2006-01-02 15:04:05")
 	db.Exec("DELETE FROM monitoring_metrics WHERE recorded_at < ?", cutoff)
 }
 
