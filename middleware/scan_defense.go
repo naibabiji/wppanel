@@ -65,7 +65,7 @@ func ScanDefense(db *sql.DB, randomSuffix string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		path := c.Request.URL.Path
 
-		if path == "/" || path == "/favicon.ico" || strings.HasPrefix(path, legitPrefix) {
+		if strings.HasPrefix(path, legitPrefix) {
 			c.Next()
 			return
 		}
