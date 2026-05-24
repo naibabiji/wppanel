@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/naibabiji/wp-panel/database"
@@ -34,12 +35,17 @@ func SendWebhook(subject, body string) error {
 		return fmt.Errorf("Webhook 未启用或未配置")
 	}
 
+	client := &http.Client{Timeout: 10 * time.Second}
+
+	if cfg.Channel == "bark" {
+		return sendBark(client, cfg.URL, subject, body)
+	}
+
 	payload, err := buildPayload(cfg.Channel, subject, body)
 	if err != nil {
 		return err
 	}
 
-	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Post(cfg.URL, "application/json", bytes.NewReader(payload))
 	if err != nil {
 		return fmt.Errorf("Webhook 请求失败: %w", err)
@@ -48,6 +54,24 @@ func SendWebhook(subject, body string) error {
 
 	if resp.StatusCode >= 400 {
 		return fmt.Errorf("Webhook 返回错误状态: %d", resp.StatusCode)
+	}
+	return nil
+}
+
+func sendBark(client *http.Client, baseURL, title, body string) error {
+	u, err := url.Parse(baseURL)
+	if err != nil {
+		return fmt.Errorf("Bark URL 格式错误: %w", err)
+	}
+	u = u.JoinPath(url.PathEscape(title), url.PathEscape(body))
+	resp, err := client.Get(u.String())
+	if err != nil {
+		return fmt.Errorf("Bark 请求失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("Bark 返回错误状态: %d", resp.StatusCode)
 	}
 	return nil
 }
@@ -87,12 +111,6 @@ func buildPayload(channel, subject, body string) ([]byte, error) {
 			"title": subject,
 			"desp":  body,
 		}
-	case "bark":
-		payload = map[string]interface{}{
-			"title": subject,
-			"body":  body,
-			"group": "WP Panel",
-		}
 	case "custom":
 		payload = map[string]interface{}{
 			"title":   subject,
@@ -107,19 +125,21 @@ func buildPayload(channel, subject, body string) ([]byte, error) {
 }
 
 func TestWebhook(channel, url string) error {
-	cfg := &WebhookConfig{
-		Enabled: "true",
-		Channel: channel,
-		URL:     url,
+	title := "WP Panel — 测试消息"
+	msg := "如果您收到这条消息，说明 Webhook 配置正确。"
+
+	client := &http.Client{Timeout: 10 * time.Second}
+
+	if channel == "bark" {
+		return sendBark(client, url, title, msg)
 	}
 
-	payload, err := buildPayload(cfg.Channel, "WP Panel — 测试消息", "如果您收到这条消息，说明 Webhook 配置正确。")
+	payload, err := buildPayload(channel, title, msg)
 	if err != nil {
 		return err
 	}
 
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Post(cfg.URL, "application/json", bytes.NewReader(payload))
+	resp, err := client.Post(url, "application/json", bytes.NewReader(payload))
 	if err != nil {
 		return fmt.Errorf("Webhook 请求失败: %w", err)
 	}

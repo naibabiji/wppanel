@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"strconv"
 
 	"github.com/naibabiji/wp-panel/database"
 	"github.com/naibabiji/wp-panel/executor"
@@ -40,8 +41,13 @@ func (h *AlertHandler) SaveSettings(c *gin.Context) {
 
 	db := database.GetDB()
 	for key, val := range raw {
-		strVal, ok := val.(string)
-		if !ok {
+		var strVal string
+		switch v := val.(type) {
+		case string:
+			strVal = v
+		case bool:
+			strVal = strconv.FormatBool(v)
+		default:
 			continue
 		}
 		db.Exec("UPDATE security_settings SET svalue = ?, updated_at = CURRENT_TIMESTAMP WHERE skey = ?", strVal, key)
