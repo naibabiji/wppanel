@@ -567,12 +567,8 @@ func CleanExpiredBans() {
 
 		db.Exec("UPDATE firewall_bans SET unbanned_at = datetime('now') WHERE id = ?", id)
 
-		if jail == "panel_scan" {
+		if jail == "panel_scan" || jail == "panel" {
 			RemovePersistBan(ip)
-		} else if jail == "wppanel" || jail == "panel" {
-			for _, j := range []string{"wppanel", "wppanel-404", "panel"} {
-				executeCommand("fail2ban-client", "set", j, "unbanip", ip)
-			}
 		}
 	}
 }

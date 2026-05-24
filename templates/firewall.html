@@ -43,7 +43,7 @@
                     <ul class="space-y-1 ml-2">
                         <li><span class="text-blue-400">Fail2ban</span> — 管理临时封禁（jail: <code class="text-gray-300">wppanel</code>、<code class="text-gray-300">wppanel-404</code>），到期自动释放</li>
                         <li><span class="text-purple-400">Nftables 持久</span> — 管理永久封禁，独立于 Fail2ban，重启不丢失</li>
-                        <li><span class="text-orange-400">扫描防御</span> — 面板中间件检测非浏览器请求，通过 Nftables 直接丢弃数据包（来源: <code class="text-gray-300">panel_scan</code>）</li>
+                        <li><span class="text-orange-400">Nftables 持久</span> — 管理扫描防御封禁（来源: <code class="text-gray-300">panel_scan</code>）和面板认证封禁（来源: <code class="text-gray-300">panel</code>），独立于 Fail2ban，到期自动解除</li>
                     </ul>
                 </div>
                 <div>
@@ -78,11 +78,7 @@
                             <br><span class="text-green-400">fail2ban-client</span> status wppanel-404
                         </div>
                         <div>
-                            <span class="text-gray-500"># 查看面板认证封禁（Web 登录 + BasicAuth 失败）</span>
-                            <br><span class="text-green-400">fail2ban-client</span> status panel
-                        </div>
-                        <div>
-                            <span class="text-gray-500"># 查看 Nftables 持久封禁和扫描防御封禁</span>
+                            <span class="text-gray-500"># 查看 Nftables 持久封禁（扫描防御 + 面板认证封禁）</span>
                             <br><span class="text-green-400">nft</span> list set ip wppanel_persist banned_ips
                         </div>
                     </div>

@@ -79,10 +79,8 @@ func (t *LoginAttemptTracker) banIP(ip string, attemptType string) {
 		ip, reason, expiresAt,
 	)
 
-	go func() {
-		cmd := exec.Command("fail2ban-client", "set", "panel", "banip", ip)
-		_ = cmd.Run()
-	}()
+	exec.Command("bash", "-c",
+		fmt.Sprintf("nft add element ip wppanel_persist banned_ips { %s } 2>/dev/null; true", ip)).Run()
 }
 
 func (t *LoginAttemptTracker) CleanupOldAttempts() {
