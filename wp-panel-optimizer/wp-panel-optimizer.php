@@ -69,7 +69,7 @@ class WP_Panel_Optimizer {
         $cfg = self::load_config();
         $panelUrl = self::get_panel_url();
         $apiKey = self::get_api_key();
-        $currentDomain = parse_url(home_url(), PHP_URL_HOST);
+        $currentDomain = wp_parse_url(home_url(), PHP_URL_HOST);
         $missing = !$panelUrl || !$apiKey;
 
         // 从面板同步最新状态
@@ -85,7 +85,7 @@ class WP_Panel_Optimizer {
         if (isset($_POST['wpp_save'])) {
             check_admin_referer('wpp_optimizer_settings');
             $fcacheEnabled  = !empty($_POST['fcache_enabled'])  ? true : false;
-            $fcacheTTL      = intval($_POST['fcache_ttl']);
+            $fcacheTTL      = isset($_POST['fcache_ttl']) ? intval($_POST['fcache_ttl']) : 300;
             $noUpdates      = !empty($_POST['no_updates'])      ? true : false;
             $noFileEdit     = !empty($_POST['no_file_edit'])    ? true : false;
 
@@ -110,7 +110,7 @@ class WP_Panel_Optimizer {
         <div class="wrap">
             <h1>WP Panel Optimizer</h1>
             <p>由 <a href="https://github.com/naibabiji/wp-panel" target="_blank">WP Panel</a> 面板统一管理。当前站点：<code><?php echo esc_html($currentDomain); ?></code></p>
-            <?php echo $notice; ?>
+            <?php echo wp_kses_post($notice); ?>
             <?php if ($missing): ?>
                 <div class="notice notice-error"><p><strong>配置文件缺失</strong> — 请在 WP Panel 面板中进入该网站详情页，点击 WordPress 优化卡片的「安装配套插件」按钮完成初始化。</p></div>
             <?php endif; ?>
@@ -184,7 +184,7 @@ class WP_Panel_Optimizer {
                 var btn = this, msg = document.getElementById('wpp-verify-msg');
                 btn.disabled = true;
                 btn.textContent = '验证中...';
-                fetch('<?php echo admin_url('admin-ajax.php'); ?>?action=wpp_optimizer_verify&_wpnonce=<?php echo wp_create_nonce('wpp_optimizer_settings'); ?>')
+                fetch('<?php echo esc_url(admin_url('admin-ajax.php')); ?>?action=wpp_optimizer_verify&_wpnonce=<?php echo esc_attr(wp_create_nonce('wpp_optimizer_settings')); ?>')
                     .then(r => r.json())
                     .then(data => {
                         if (data.success) {
@@ -205,6 +205,7 @@ class WP_Panel_Optimizer {
 
     public static function clear_notice() {
         if (!isset($_GET['wpp_cleared'])) return;
+        if (!isset($_GET['_wpnonce']) || !wp_verify_nonce(sanitize_text_field(wp_unslash($_GET['_wpnonce'])), 'wpp_clear_notice')) return;
         if ($_GET['wpp_cleared'] === '1') {
             echo '<div class="notice notice-success is-dismissible"><p>Nginx 缓存已清除，旧页面将在几分钟内更新。</p></div>';
         } else {
@@ -226,7 +227,7 @@ class WP_Panel_Optimizer {
         $resp = self::do_clear();
         $success = !empty($resp['success']);
         self::log_clear('manual', $success);
-        wp_redirect(add_query_arg('wpp_cleared', $success ? '1' : '0', wp_get_referer() ?: admin_url()));
+        wp_safe_redirect(add_query_arg(['wpp_cleared' => $success ? '1' : '0', '_wpnonce' => wp_create_nonce('wpp_clear_notice')], wp_get_referer() ?: admin_url()));
         exit;
     }
 
@@ -262,7 +263,7 @@ class WP_Panel_Optimizer {
     // ============================================================
 
     private static function fetch_panel_state() {
-        $domain = parse_url(home_url(), PHP_URL_HOST);
+        $domain = wp_parse_url(home_url(), PHP_URL_HOST);
         $resp = self::api_request('GET', '/api/sites/find?domain=' . urlencode($domain));
         if (!$resp) return null;
         $data = json_decode($resp, true);
@@ -270,7 +271,7 @@ class WP_Panel_Optimizer {
     }
 
     private static function push_optimizer_settings($fcacheEnabled, $fcacheTTL, $noUpdates, $noFileEdit) {
-        $domain = parse_url(home_url(), PHP_URL_HOST);
+        $domain = wp_parse_url(home_url(), PHP_URL_HOST);
         self::api_request('PUT', '/api/sites/optimizer-settings', [
             'domain'               => $domain,
             'enabled'              => $fcacheEnabled,
@@ -281,7 +282,7 @@ class WP_Panel_Optimizer {
     }
 
     private static function do_clear() {
-        $domain = parse_url(home_url(), PHP_URL_HOST);
+        $domain = wp_parse_url(home_url(), PHP_URL_HOST);
         $resp = self::api_request('DELETE', '/api/sites/clear-cache', ['domain' => $domain]);
         $data = json_decode($resp, true);
         return ['success' => !empty($data['success']), 'message' => $data['message'] ?? ''];
@@ -320,7 +321,7 @@ add_action('init', ['WP_Panel_Optimizer', 'init']);
 
 add_action('wp_ajax_wpp_optimizer_verify', function() {
     check_ajax_referer('wpp_optimizer_settings');
-    $domain = parse_url(home_url(), PHP_URL_HOST);
+    $domain = wp_parse_url(home_url(), PHP_URL_HOST);
     $resp = WP_Panel_Optimizer::api_request_public('GET', '/api/sites/find?domain=' . urlencode($domain));
     if (!$resp) {
         wp_send_json(['success' => false, 'data' => ['message' => '无响应，请检查面板地址']]);
