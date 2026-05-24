@@ -216,6 +216,7 @@
                 <button @click="logType='error'; fetchLogs()" :class="logType === 'error' ? 'text-white border-b-2 border-blue-400' : 'text-gray-400 hover:text-white'" class="px-3 py-1 text-sm font-medium">错误日志</button>
                 <button @click="fetchLogs()" class="text-sm py-1 px-3 rounded text-gray-400 hover:text-white" style="background-color: #1e293b; border: 1px solid #334155;">刷新</button>
                 <button @click="clearLogs()" class="text-sm py-1 px-3 rounded" style="background-color: #7f1d1d; color: #fca5a5;">清空</button>
+                <button @click="logFullscreen = true" class="text-sm py-1 px-3 rounded text-gray-400 hover:text-white" style="background-color: #1e293b; border: 1px solid #334155;">全屏查看</button>
                 <select @change="setAccessLogMode($event.target.value)" x-model="accessLogMode" x-show="logType === 'access'" class="input-field w-28 text-sm py-1">
                     <option value="off">关闭日志</option>
                     <option value="error_only">仅异常</option>
@@ -229,6 +230,20 @@
             </div>
             <pre x-text="logContent" class="w-full rounded p-3 text-xs font-mono overflow-auto" style="background-color: #0f172a; border: 1px solid #334155; color: #94a3b8; max-height: 400px; white-space: pre-wrap; word-break: break-all;"></pre>
         </div>
+    </div>
+
+    <!-- 日志全屏弹窗 -->
+    <div x-show="logFullscreen" class="fixed inset-0 bg-black bg-opacity-90 flex flex-col z-50" @keydown.escape.window="logFullscreen = false">
+        <div class="flex items-center justify-between px-6 py-3 border-b border-gray-700">
+            <div class="flex items-center space-x-4 text-sm">
+                <span class="text-white font-semibold" x-text="logType === 'access' ? '访问日志' : '错误日志'"></span>
+                <button @click="logType='access'; fetchLogs()" :class="logType === 'access' ? 'text-white border-b-2 border-blue-400' : 'text-gray-400 hover:text-white'" class="px-3 py-1 text-sm font-medium">访问日志</button>
+                <button @click="logType='error'; fetchLogs()" :class="logType === 'error' ? 'text-white border-b-2 border-blue-400' : 'text-gray-400 hover:text-white'" class="px-3 py-1 text-sm font-medium">错误日志</button>
+                <button @click="fetchLogs()" class="text-sm py-1 px-3 rounded text-gray-400 hover:text-white" style="background-color: #1e293b; border: 1px solid #334155;">刷新</button>
+            </div>
+            <button @click="logFullscreen = false" class="text-gray-400 hover:text-white text-2xl leading-none">&times;</button>
+        </div>
+        <pre x-text="logContent" class="flex-1 w-full p-6 text-xs font-mono overflow-auto" style="background-color: #0a0e14; color: #94a3b8; white-space: pre-wrap; word-break: break-all;"></pre>
     </div>
 
     <!-- ============================================================ -->
@@ -345,6 +360,7 @@ function websiteDetail() {
         restoreUploading: false,
         logType: 'access',
         logContent: '',
+        logFullscreen: false,
         nginxPreContent: '',
         nginxContent: '',
         nginxSubmitting: false,
