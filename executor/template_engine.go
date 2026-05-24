@@ -44,13 +44,15 @@ type TemplateEngine struct {
 func EnsureLogMap() {
 	confDir := "/etc/nginx/conf.d"
 	confPath := confDir + "/wppanel-log.conf"
-	if _, err := os.Stat(confPath); err == nil {
-		return
-	}
 	os.MkdirAll(confDir, 0755)
 	content := `# WP Panel — 日志条件变量 (勿手动修改)
 map $status $wp_loggable {
     ~^[45]  1;
+    default 0;
+}
+
+map $arg_wp_hc $wp_hc_loggable {
+    ""      1;
     default 0;
 }
 `
@@ -249,7 +251,7 @@ server {
     index index.php index.html index.htm;
 
     {{if eq .AccessLogMode "full"}}
-	    access_log /www/wwwlogs/{{.Domain}}/access.log;
+	    access_log /www/wwwlogs/{{.Domain}}/access.log combined if=$wp_hc_loggable;
 	    {{else if eq .AccessLogMode "error_only"}}
 	    access_log /www/wwwlogs/{{.Domain}}/access.log combined if=$wp_loggable;
 	    {{else}}
@@ -362,7 +364,7 @@ server {
     index index.php index.html index.htm;
 
     {{if eq .AccessLogMode "full"}}
-	    access_log /www/wwwlogs/{{.Domain}}/access.log;
+	    access_log /www/wwwlogs/{{.Domain}}/access.log combined if=$wp_hc_loggable;
 	    {{else if eq .AccessLogMode "error_only"}}
 	    access_log /www/wwwlogs/{{.Domain}}/access.log combined if=$wp_loggable;
 	    {{else}}

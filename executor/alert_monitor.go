@@ -294,9 +294,11 @@ func checkWebsiteExpiry() (bool, string) {
 	return false, ""
 }
 
+var siteLastCheck = make(map[string]time.Time)
+
 func checkSites() (bool, string) {
 	db := database.GetDB()
-	rows, err := db.Query(`SELECT id, domain, ssl_enabled FROM websites WHERE status = 'active' AND monitoring_enabled = 1`)
+	rows, err := db.Query(`SELECT id, domain, ssl_enabled, monitoring_interval FROM websites WHERE status = 'active' AND monitoring_enabled = 1`)
 	if err != nil {
 		return false, ""
 	}
@@ -305,16 +307,25 @@ func checkSites() (bool, string) {
 	var msgs []string
 	for rows.Next() {
 		var id, domain string
-		var ssl int
-		if rows.Scan(&id, &domain, &ssl) != nil {
+		var ssl, interval int
+		if rows.Scan(&id, &domain, &ssl, &interval) != nil {
 			continue
 		}
+		if interval <= 0 {
+			interval = 5
+		}
+
+		if last, ok := siteLastCheck[id]; ok && time.Since(last) < time.Duration(interval)*time.Minute {
+			continue
+		}
+		siteLastCheck[id] = time.Now()
+
 		proto := "http"
 		if ssl == 1 {
 			proto = "https"
 		}
 		url := proto + "://" + domain + "/?wp_hc=" + strconv.FormatInt(time.Now().Unix(), 10)
-		out, err := exec.Command("curl", "-k", "-s", "-o", "/dev/null", "-w", "%{http_code}", "--max-time", "10", url).Output()
+		out, err := exec.Command("curl", "-k", "-s", "-o", "/dev/null", "-w", "%{http_code}", "--max-time", "10", "-A", "WP-Panel-HealthCheck/1.0", url).Output()
 		if err != nil {
 			msgs = append(msgs, fmt.Sprintf("%s 无法访问 (%v)", domain, err))
 			continue

@@ -19,7 +19,7 @@ server {
     index index.php index.html index.htm;
 
     {{if eq .AccessLogMode "full"}}
-	    access_log /www/wwwlogs/{{.Domain}}/access.log;
+	    access_log /www/wwwlogs/{{.Domain}}/access.log combined if=$wp_hc_loggable;
 	    {{else if eq .AccessLogMode "error_only"}}
 	    access_log /www/wwwlogs/{{.Domain}}/access.log combined if=$wp_loggable;
 	    {{else}}
@@ -114,7 +114,7 @@ server {
     index index.php index.html index.htm;
 
     {{if eq .AccessLogMode "full"}}
-	    access_log /www/wwwlogs/{{.Domain}}/access.log;
+	    access_log /www/wwwlogs/{{.Domain}}/access.log combined if=$wp_hc_loggable;
 	    {{else if eq .AccessLogMode "error_only"}}
 	    access_log /www/wwwlogs/{{.Domain}}/access.log combined if=$wp_loggable;
 	    {{else}}
