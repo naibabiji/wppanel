@@ -2,7 +2,7 @@
 /**
  * Plugin Name: WP Panel Optimizer
  * Plugin URI:  https://github.com/naibabiji/wp-panel
- * Description: 与 WP Panel 面板配合，管理 FastCGI 缓存、WordPress 自动更新、文件编辑等优化项。发布/更新文章自动清除缓存。
+ * Description: 与 WP Panel 面板配合，管理 FastCGI 缓存、禁止检测更新、文件编辑等优化项。发布/更新文章自动清除缓存。
  * Version:     1.0.0
  * Author:      WP Panel
  * Author URI:  https://blog.naibabiji.com
@@ -55,6 +55,42 @@ class WP_Panel_Optimizer {
         add_action('wp_update_comment_count', [__CLASS__, 'auto_comment_clear']);
         add_filter('plugin_action_links_' . plugin_basename(__FILE__), [__CLASS__, 'action_links']);
         add_action('admin_notices', [__CLASS__, 'clear_notice']);
+
+        // 禁止检测更新：完全屏蔽更新提示和通知
+        if (get_option(self::OPTION_NO_UPDATES, '0') === '1') {
+            add_action('admin_init', [__CLASS__, 'suppress_updates']);
+        }
+    }
+
+    public static function suppress_updates() {
+        remove_action('admin_notices', 'update_nag', 3);
+        remove_action('network_admin_notices', 'update_nag', 3);
+        remove_action('wp_version_check', 'wp_version_check');
+        remove_action('admin_init', '_maybe_update_core');
+        remove_action('admin_init', '_maybe_update_plugins');
+        remove_action('admin_init', '_maybe_update_themes');
+        remove_action('load-plugins.php', 'wp_update_plugins');
+        remove_action('load-themes.php', 'wp_update_themes');
+        remove_action('load-update-core.php', 'wp_update_plugins');
+        remove_action('load-update-core.php', 'wp_update_themes');
+        remove_action('wp_update_plugins', 'wp_update_plugins');
+        remove_action('wp_update_themes', 'wp_update_themes');
+        wp_clear_scheduled_hook('wp_version_check');
+        wp_clear_scheduled_hook('wp_update_plugins');
+        wp_clear_scheduled_hook('wp_update_themes');
+
+        add_filter('pre_site_transient_update_core', '__return_null');
+        add_filter('pre_site_transient_update_plugins', '__return_null');
+        add_filter('pre_site_transient_update_themes', '__return_null');
+
+        if (!current_user_can('update_core')) return;
+        add_filter('wp_get_update_data', [__CLASS__, 'filter_update_data'], 10, 2);
+    }
+
+    public static function filter_update_data($data) {
+        $data['counts'] = ['total' => 0, 'plugins' => 0, 'themes' => 0, 'wordpress' => 0, 'translations' => 0];
+        $data['title']  = '';
+        return $data;
     }
 
     public static function action_links($links) {
@@ -143,10 +179,10 @@ class WP_Panel_Optimizer {
                         </td>
                     </tr>
                     <tr>
-                        <th><label for="wpp-no-updates">禁止自动更新</label></th>
+                        <th><label for="wpp-no-updates">禁止检测更新</label></th>
                         <td>
-                            <label><input id="wpp-no-updates" name="no_updates" type="checkbox" value="1" <?php checked($noUpdates); ?>> 禁止 WordPress 核心、插件和主题自动更新</label>
-                            <p class="description">面板将写入 <code>AUTOMATIC_UPDATER_DISABLED</code> 常量到 wp-config.php。</p>
+                            <label><input id="wpp-no-updates" name="no_updates" type="checkbox" value="1" <?php checked($noUpdates); ?>> 完全屏蔽 WordPress 核心、插件和主题的更新检测和提示</label>
+                            <p class="description">启用后 WordPress 仪表盘不再显示更新红点和通知，手动更新不受影响。</p>
                         </td>
                     </tr>
                     <tr>
