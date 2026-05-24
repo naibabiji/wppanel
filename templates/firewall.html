@@ -154,7 +154,7 @@
         </div>
     </div>
 
-    <div class="card" x-data="{history:[], loaded:false}" x-init="fetchHistory()">
+    <div class="card" x-data="{history:[], loaded:false}" x-init="api('/firewall/bans?history=1').then(r => { if (r.success) history = r.data || []; loaded = true }).catch(e => {})">
         <h3 class="text-lg font-semibold text-white mb-4">历史封禁记录（最近30条）</h3>
         <div class="overflow-x-auto">
             <table class="w-full">
@@ -235,10 +235,5 @@ function firewallManager() {
     }
 }
 
-function fetchHistory() {
-    api('/firewall/bans?history=1').then(r => {
-        if (r.success) this.history = r.data || [];
-    }).catch(e => {});
-}
 </script>
 {{end}}
