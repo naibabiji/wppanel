@@ -165,14 +165,26 @@ func ApplyFail2banSettings() {
 }
 
 func SyncFail2banBans() {
-	out, err := executeCommand("fail2ban-client", "status", "wppanel")
-	if err != nil || out == "" {
+	ipJails := make(map[string]string)
+
+	for _, jail := range []string{"wppanel", "wppanel-404"} {
+		out, err := executeCommand("fail2ban-client", "status", jail)
+		if err != nil || out == "" {
+			continue
+		}
+		for _, ip := range parseBannedIPs(out) {
+			if _, exists := ipJails[ip]; !exists {
+				ipJails[ip] = jail
+			}
+		}
+	}
+
+	if len(ipJails) == 0 {
 		return
 	}
 
-	bannedIPs := parseBannedIPs(out)
-	bannedSet := make(map[string]bool, len(bannedIPs))
-	for _, ip := range bannedIPs {
+	bannedSet := make(map[string]bool, len(ipJails))
+	for ip := range ipJails {
 		bannedSet[ip] = true
 	}
 
@@ -181,7 +193,7 @@ func SyncFail2banBans() {
 	db := database.GetDB()
 	now := time.Now()
 
-	for _, ip := range bannedIPs {
+	for ip, jail := range ipJails {
 		var count int
 		db.QueryRow("SELECT COUNT(*) FROM firewall_bans WHERE ip_address = ? AND unbanned_at IS NULL", ip).Scan(&count)
 		if count > 0 {
@@ -192,24 +204,33 @@ func SyncFail2banBans() {
 		banLevel := 2
 		expiresVal := "datetime('now', '+600 seconds')"
 		reason := "Fail2ban 自动封禁"
+		if jail == "wppanel-404" {
+			reason = "404 泛滥检测"
+		}
 
 		if prevMaxLevel >= 2 || prevBans > 0 {
 			banLevel = 3
 			expiresVal = "datetime('now', '+86400 seconds')"
 			reason = "Fail2ban 自动封禁（24h内重复违规，升级至24小时）"
+			if jail == "wppanel-404" {
+				reason = "404 泛滥检测（24h内重复违规，升级至24小时）"
+			}
 
 			l3Count := countLevel3(ip)
 			if l3Count >= 2 {
 				banLevel = 4
 				expiresVal = "NULL"
 				reason = "Fail2ban 自动封禁（高危：累计3次严重违规，永久封禁）"
+				if jail == "wppanel-404" {
+					reason = "404 泛滥检测（高危：累计3次严重违规，永久封禁）"
+				}
 			}
 		}
 
 		db.Exec(
 			`INSERT INTO firewall_bans (ip_address, ban_level, reason, source_jail, ban_count, expires_at)
-			 VALUES (?, ?, ?, 'wppanel', ?, `+expiresVal+`)`,
-			ip, banLevel, reason, prevBans+1,
+			 VALUES (?, ?, ?, ?, ?, `+expiresVal+`)`,
+			ip, banLevel, reason, jail, prevBans+1,
 		)
 
 		if banLevel >= 3 {
@@ -515,11 +536,12 @@ func UnbanAllIPs() string {
 
 	executeCommand("bash", "-c", "nft flush set ip wppanel_persist banned_ips 2>/dev/null; true")
 
-	out, err := executeCommand("fail2ban-client", "status", "wppanel")
-	if err == nil && out != "" {
-		bannedIPs := parseBannedIPs(out)
-		for _, ip := range bannedIPs {
-			executeCommand("fail2ban-client", "set", "wppanel", "unbanip", ip)
+	for _, jail := range []string{"wppanel", "wppanel-404"} {
+		out, err := executeCommand("fail2ban-client", "status", jail)
+		if err == nil && out != "" {
+			for _, ip := range parseBannedIPs(out) {
+				executeCommand("fail2ban-client", "set", jail, "unbanip", ip)
+			}
 		}
 	}
 
