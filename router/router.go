@@ -126,7 +126,8 @@ func SetupRouter(cfg *config.Config, tmplFS embed.FS, staticFS embed.FS, version
 	protected.GET("/api/websites/:id/nginx-custom", websiteHandler.GetNginxCustom)
 	protected.PUT("/api/websites/:id/nginx-custom", websiteHandler.SaveNginxCustom)
 	protected.PUT("/api/websites/:id/access-log", websiteHandler.SetAccessLogMode)
-		backupHandler := &handlers.BackupHandler{}
+		protected.PUT("/api/websites/:id/log-retention", websiteHandler.SetLogRetention)
+			backupHandler := &handlers.BackupHandler{}
 		protected.GET("/api/websites/:id/backups", backupHandler.List)
 		protected.POST("/api/websites/:id/backups", backupHandler.Create)
 		protected.DELETE("/api/websites/:id/backups/:bid", backupHandler.Delete)

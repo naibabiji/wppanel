@@ -221,6 +221,11 @@
                     <option value="error_only">仅异常</option>
                     <option value="full">全部记录</option>
                 </select>
+                <div class="flex items-center space-x-2 text-sm text-gray-400">
+                    <span>保留</span>
+                    <input type="number" x-model.number="logRetentionDays" @change="saveLogRetention()" class="input-field w-16 text-sm py-1 text-center" min="0" max="365">
+                    <span>天</span>
+                </div>
             </div>
             <pre x-text="logContent" class="w-full rounded p-3 text-xs font-mono overflow-auto" style="background-color: #0f172a; border: 1px solid #334155; color: #94a3b8; max-height: 400px; white-space: pre-wrap; word-break: break-all;"></pre>
         </div>
@@ -347,6 +352,7 @@ function websiteDetail() {
         fcacheTTL: 300,
         disableWPUpdates: false,
         disableFileEditing: false,
+        logRetentionDays: 0,
         optimizationSaving: false,
         pluginStatus: 'not_installed',
         pluginInstalling: false,
@@ -369,6 +375,7 @@ function websiteDetail() {
                     this.fcacheTTL = r.data.fastcgi_cache_ttl || 300;
                     this.disableWPUpdates = r.data.disable_wp_updates || false;
                     this.disableFileEditing = r.data.disable_file_editing || false;
+                    this.logRetentionDays = r.data.log_retention_days || 0;
                     this.monitoringEnabled = r.data.monitoring_enabled || false;
                     this.monitoringInterval = r.data.monitoring_interval || 5;
                 }
@@ -625,6 +632,14 @@ function websiteDetail() {
                 showToast('保存成功', 'success');
             } catch(e) { showToast('保存失败: ' + e.message, 'error'); }
             this.optimizationSaving = false;
+        },
+        async saveLogRetention() {
+            try {
+                await api('/websites/' + this.site.id + '/log-retention', {
+                    method: 'PUT',
+                    body: { retention_days: parseInt(this.logRetentionDays) || 0 }
+                });
+            } catch(e) {}
         },
         async clearFCache() {
             if (!await confirmModal('确认清除 FastCGI 缓存？')) return;

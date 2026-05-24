@@ -58,6 +58,13 @@ var upgrades = []Upgrade{
 			`ALTER TABLE websites ADD COLUMN disable_file_editing INTEGER NOT NULL DEFAULT 0`,
 		},
 	},
+	{
+		Version:     "1.0.2",
+		Description: "网站日志保留天数",
+		SQL: []string{
+			`ALTER TABLE websites ADD COLUMN log_retention_days INTEGER NOT NULL DEFAULT 0`,
+		},
+	},
 }
 
 // LatestVersion 返回 upgrades 列表中的最新版本号。

@@ -25,7 +25,8 @@ const websiteCols = `id, name, domain, aliases, status, system_user, web_root, l
 	db_name, db_user, php_pool_path, nginx_conf_path, site_type, ssl_enabled,
 	ssl_cert_path, ssl_key_path, ssl_expires_at, template_version, access_log_mode,
 	fastcgi_cache_enabled, fastcgi_cache_ttl, fastcgi_cache_key,
-	monitoring_enabled, monitoring_interval, disable_wp_updates, disable_file_editing, expires_at, created_at, updated_at`
+	monitoring_enabled, monitoring_interval, disable_wp_updates, disable_file_editing,
+		log_retention_days, expires_at, created_at, updated_at`
 
 // scanWebsite scans the canonical columns into a Website model.
 // scanner is either row.Scan (for QueryRow) or rows.Scan (for Rows).
@@ -35,6 +36,7 @@ func scanWebsite(scanner func(dest ...interface{}) error) (*models.Website, erro
 	var sslEnabled, fCacheEnabled, monitoringEnabled int
 	var monitoringInterval int
 	var disableWPUpdates, disableFileEditing int
+	var logRetentionDays int
 
 	err := scanner(
 		&w.ID, &w.Name, &w.Domain, &aliases, &status, &w.SystemUser,
@@ -42,7 +44,8 @@ func scanWebsite(scanner func(dest ...interface{}) error) (*models.Website, erro
 		&w.NginxConfPath, &w.SiteType, &sslEnabled, &w.SSLCertPath, &w.SSLKeyPath,
 		&w.SSLExpiresAt, &w.TemplateVersion, &w.AccessLogMode,
 		&fCacheEnabled, &w.FCacheTTL, &w.FCacheKey,
-		&monitoringEnabled, &monitoringInterval, &disableWPUpdates, &disableFileEditing, &w.ExpiresAt,
+		&monitoringEnabled, &monitoringInterval, &disableWPUpdates, &disableFileEditing,
+		&logRetentionDays, &w.ExpiresAt,
 		&w.CreatedAt, &w.UpdatedAt,
 	)
 	if err != nil {
@@ -57,6 +60,7 @@ func scanWebsite(scanner func(dest ...interface{}) error) (*models.Website, erro
 	w.MonitoringInterval = monitoringInterval
 	w.DisableWPUpdates = disableWPUpdates == 1
 	w.DisableFileEditing = disableFileEditing == 1
+	w.LogRetentionDays = logRetentionDays
 	return &w, nil
 }
 
@@ -1023,4 +1027,60 @@ func (h *CacheHelperHandler) UpdateOptimizerSettings(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"message": "已保存"}))
+}
+
+func (h *WebsiteHandler) SetLogRetention(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("无效的网站ID"))
+		return
+	}
+
+	site := getWebsiteByID(id)
+	if site == nil {
+		c.JSON(http.StatusNotFound, models.ErrorResponse("网站不存在"))
+		return
+	}
+
+	var req struct {
+		RetentionDays int `json:"retention_days"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse("参数错误"))
+		return
+	}
+	if req.RetentionDays < 0 {
+		req.RetentionDays = 0
+	}
+
+	db := database.GetDB()
+	db.Exec("UPDATE websites SET log_retention_days = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", req.RetentionDays, id)
+
+	writeLogrotateConfig(site.Domain, site.LogDir, req.RetentionDays)
+
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"message": "已保存"}))
+}
+
+func writeLogrotateConfig(domain, logDir string, retentionDays int) {
+	confPath := "/etc/logrotate.d/wppanel-" + domain
+
+	if retentionDays <= 0 {
+		os.Remove(confPath)
+		return
+	}
+
+	content := fmt.Sprintf(`# WP Panel Generated - %s
+%s/access.log
+%s/error.log {
+    daily
+    rotate %d
+    missingok
+    notifempty
+    compress
+    delaycompress
+    copytruncate
+}
+`, domain, logDir, logDir, retentionDays)
+
+	os.WriteFile(confPath, []byte(content), 0644)
 }

@@ -282,6 +282,9 @@ func executeDeleteSite(task *Task) TaskResult {
 	os.RemoveAll(site.WebRoot)
 	os.RemoveAll(site.LogDir)
 
+	// Clean up logrotate config
+	os.Remove("/etc/logrotate.d/wppanel-" + site.Domain)
+
 	_ = dropMariaDBDatabase(site.DBName, site.DBUser, cfg)
 
 	os.Remove(site.PHPPoolPath)
@@ -467,6 +470,13 @@ func executeUpdateDomains(task *Task) TaskResult {
 		site.WebRoot = newWebRoot
 		site.LogDir = newLogDir
 		site.NginxConfPath = newNginxConf
+
+		// Rename logrotate config if it exists
+		oldLogrotate := "/etc/logrotate.d/wppanel-" + oldDomain
+		newLogrotate := "/etc/logrotate.d/wppanel-" + newDomain
+		if _, err := os.Stat(oldLogrotate); err == nil {
+			os.Rename(oldLogrotate, newLogrotate)
+		}
 		site.PHPPoolPath = newPHPPool
 		if site.SSLCertPath != "" {
 			site.SSLCertPath = filepath.Join(newCertDir, "fullchain.pem")
