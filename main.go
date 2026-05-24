@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/naibabiji/wp-panel/collector"
 	"github.com/naibabiji/wp-panel/config"
@@ -48,7 +49,16 @@ func main() {
 		fmt.Println("WP Panel 面板信息")
 		fmt.Println("─────────────────")
 		if BuildTime != "" && BuildTime != "unknown" {
-			fmt.Printf("版本: %s (构建: %s)\n", Version, BuildTime)
+			displayTime := BuildTime
+			if bt, err := time.Parse(time.RFC3339, BuildTime); err == nil {
+				tz := getSysTimezone()
+				if loc, err := time.LoadLocation(tz); err == nil {
+					displayTime = bt.In(loc).Format("2006-01-02 15:04:05")
+				} else {
+					displayTime = bt.Local().Format("2006-01-02 15:04:05")
+				}
+			}
+			fmt.Printf("版本: %s (构建: %s)\n", Version, displayTime)
 		} else {
 			fmt.Printf("版本: %s\n", Version)
 		}
@@ -290,4 +300,18 @@ func randomString(n int) string {
 		result[i] = chars[idx.Int64()]
 	}
 	return string(result)
+}
+
+func getSysTimezone() string {
+	out, _ := exec.Command("bash", "-c", "timedatectl show --property=Timezone --value 2>/dev/null").CombinedOutput()
+	tz := strings.TrimSpace(string(out))
+	if tz == "" {
+		if data, err := os.ReadFile("/etc/timezone"); err == nil {
+			tz = strings.TrimSpace(string(data))
+		}
+	}
+	if tz == "" {
+		return "UTC"
+	}
+	return tz
 }
