@@ -19,6 +19,7 @@ func SetupRouter(cfg *config.Config, tmplFS embed.FS, staticFS embed.FS, version
 	r := gin.New()
 
 	r.Use(middleware.CustomRecovery())
+	r.Use(middleware.SecurityHeaders())
 
 	db := database.GetDB()
 

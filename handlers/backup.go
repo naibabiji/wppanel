@@ -235,15 +235,17 @@ func (h *BackupHandler) ClearDatabase(c *gin.Context) {
 		return
 	}
 
-	cmd := exec.Command("mysql", "-u", "root", "-p"+dbPass, "-B", "-N", "-e",
+	cmd := exec.Command("mysql", "-u", "root", "-B", "-N", "-e",
 		fmt.Sprintf("SELECT CONCAT('DROP TABLE IF EXISTS `', TABLE_NAME, '`;') FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = '%s' AND TABLE_TYPE = 'BASE TABLE'", site.DBName))
+	cmd.Env = append(os.Environ(), "MYSQL_PWD="+dbPass)
 	dropSQL, err := cmd.CombinedOutput()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse(fmt.Sprintf("获取表列表失败: %s", string(dropSQL))))
 		return
 	}
 
-	mysqlCmd := exec.Command("mysql", "-u", "root", "-p"+dbPass, site.DBName)
+	mysqlCmd := exec.Command("mysql", "-u", "root", site.DBName)
+	mysqlCmd.Env = append(os.Environ(), "MYSQL_PWD="+dbPass)
 	stdin, _ := mysqlCmd.StdinPipe()
 	var stderr bytes.Buffer
 	mysqlCmd.Stderr = &stderr
