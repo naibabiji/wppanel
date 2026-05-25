@@ -125,7 +125,7 @@ func buildPayload(channel, subject, body string) ([]byte, error) {
 }
 
 func TestWebhook(channel, url string) error {
-	title := "WP Panel — 测试消息"
+	title := getPanelTitle() + " — 测试消息"
 	msg := "如果您收到这条消息，说明 Webhook 配置正确。"
 
 	client := &http.Client{Timeout: 10 * time.Second}

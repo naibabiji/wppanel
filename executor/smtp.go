@@ -137,5 +137,5 @@ func buildMessage(from, to, subject, body string) string {
 }
 
 func TestSMTP(to string) error {
-	return SendMail(to, "WP Panel — 测试邮件", "如果您收到这封邮件，说明 SMTP 配置正确。\n\n来自 WP Panel 面板。")
+	return SendMail(to, getPanelTitle()+" — 测试邮件", "如果您收到这封邮件，说明 SMTP 配置正确。\n\n来自 "+getPanelTitle()+" 面板。")
 }

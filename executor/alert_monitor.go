@@ -80,10 +80,10 @@ func (m *alertManager) runChecks() {
 			r.lastFired = time.Now()
 			logAlert(r.key, "critical", msg)
 			if hasSMTP {
-				go SendMail("", "WP Panel 告警 — "+alertLabel(r.key), msg)
+				go SendMail("", getPanelTitle()+" 告警 — "+alertLabel(r.key), msg)
 			}
 			if hasWebhook {
-				go SendWebhook("WP Panel 告警 — "+alertLabel(r.key), msg)
+				go SendWebhook(getPanelTitle()+" 告警 — "+alertLabel(r.key), msg)
 			}
 		} else if !firing && r.firing {
 			// Transition: alert → normal
@@ -91,10 +91,10 @@ func (m *alertManager) runChecks() {
 			recoveryMsg := alertLabel(r.key) + " 已恢复正常"
 			logAlert(r.key, "info", recoveryMsg)
 			if hasSMTP && time.Since(r.lastFired) > 5*time.Minute {
-				go SendMail("", "WP Panel 恢复通知", recoveryMsg)
+				go SendMail("", getPanelTitle()+" 恢复通知", recoveryMsg)
 			}
 			if hasWebhook && time.Since(r.lastFired) > 5*time.Minute {
-				go SendWebhook("WP Panel 恢复通知", recoveryMsg)
+				go SendWebhook(getPanelTitle()+" 恢复通知", recoveryMsg)
 			}
 		} else if firing && r.firing {
 			// Continuous alert — re-send every 30 min
@@ -102,10 +102,10 @@ func (m *alertManager) runChecks() {
 				r.lastFired = time.Now()
 				logAlert(r.key, "critical", msg)
 				if hasSMTP {
-					go SendMail("", "WP Panel 告警 — "+alertLabel(r.key)+"（持续中）", msg)
+					go SendMail("", getPanelTitle()+" 告警 — "+alertLabel(r.key)+"（持续中）", msg)
 				}
 				if hasWebhook {
-					go SendWebhook("WP Panel 告警 — "+alertLabel(r.key)+"（持续中）", msg)
+					go SendWebhook(getPanelTitle()+" 告警 — "+alertLabel(r.key)+"（持续中）", msg)
 				}
 			}
 		}
@@ -339,4 +339,17 @@ func checkSites() (bool, string) {
 		return true, strings.Join(msgs, "；")
 	}
 	return false, ""
+}
+
+func getPanelTitle() string {
+	db := database.GetDB()
+	if db == nil {
+		return "WP Panel"
+	}
+	var title string
+	db.QueryRow("SELECT svalue FROM security_settings WHERE skey = 'panel_title'").Scan(&title)
+	if title == "" {
+		return "WP Panel"
+	}
+	return title
 }
