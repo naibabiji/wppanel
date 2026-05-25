@@ -28,7 +28,7 @@
                             <td class="py-2"><input type="text" x-model="e.slug" class="input-field text-xs py-1 w-full"></td>
                             <td class="py-2 px-1"><input type="text" x-model="e.name" class="input-field text-xs py-1 w-full"></td>
                             <td class="py-2 text-center"><input type="checkbox" x-model="e.enabled" class="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-600"></td>
-                            <td class="py-2 text-center"><button @click="themes.splice(i, 1)" class="text-red-400 hover:text-red-300 text-xs">删除</button></td>
+                            <td class="py-2 text-center"><button @click="remove(themes, i)" class="text-red-400 hover:text-red-300 text-xs">删除</button></td>
                         </tr>
                     </template>
                 </tbody>
@@ -53,7 +53,7 @@
                             <td class="py-2"><input type="text" x-model="e.slug" class="input-field text-xs py-1 w-full"></td>
                             <td class="py-2 px-1"><input type="text" x-model="e.name" class="input-field text-xs py-1 w-full"></td>
                             <td class="py-2 text-center"><input type="checkbox" x-model="e.enabled" class="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-600"></td>
-                            <td class="py-2 text-center"><button @click="plugins.splice(i, 1)" class="text-red-400 hover:text-red-300 text-xs">删除</button></td>
+                            <td class="py-2 text-center"><button @click="remove(plugins, i)" class="text-red-400 hover:text-red-300 text-xs">删除</button></td>
                         </tr>
                     </template>
                 </tbody>
@@ -80,6 +80,13 @@ function extensionConfig() {
                     this.plugins = resp.data.filter(e => e.etype === 'plugin');
                 }
             } catch(e) { this.showMsg(e.message, true); }
+        },
+        async remove(arr, i) {
+            const item = arr[i];
+            if (item && item.id > 0) {
+                try { await api('/extensions/' + item.id, { method: 'DELETE' }); } catch(e) {}
+            }
+            arr.splice(i, 1);
         },
         async save() {
             const all = [...this.themes, ...this.plugins];
