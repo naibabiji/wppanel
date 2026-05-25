@@ -180,6 +180,12 @@ func logOp(task *Task, result TaskResult) {
 		if p, ok := task.Payload.(*ManualBanPayload); ok {
 			target = p.IP
 		}
+	case TaskRenderCron:
+		target = "cron_config"
+	case TaskRunCron:
+		if p, ok := task.Payload.(*RunCronPayload); ok {
+			target = p.Name
+		}
 	}
 
 	db := database.GetDB()

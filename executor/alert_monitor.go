@@ -36,6 +36,7 @@ func StartAlertMonitor() {
 		{key: "alert_backup", checkFn: checkBackup},
 		{key: "alert_website_expiry", checkFn: checkWebsiteExpiry},
 		{key: "alert_remote_backup", checkFn: checkRemoteBackup},
+		{key: "alert_cron_fail", checkFn: checkCronFail},
 		{key: "alert_site", checkFn: checkSites},
 	}
 	go alertMgr.loop()
@@ -137,6 +138,8 @@ func alertLabel(key string) string {
 		return "网站即将到期"
 	case "alert_remote_backup":
 		return "远程备份失败"
+	case "alert_cron_fail":
+		return "计划任务执行失败"
 	case "alert_site":
 		return "网站不可用"
 	}
@@ -312,6 +315,18 @@ func checkRemoteBackup() (bool, string) {
 		AND created_at > datetime('now', '-1 hour')`).Scan(&failCount)
 	if failCount > 0 {
 		return true, fmt.Sprintf("近1小时内有 %d 次远程备份同步失败", failCount)
+	}
+	return false, ""
+}
+
+func checkCronFail() (bool, string) {
+	db := database.GetDB()
+	var failCount int
+	db.QueryRow(`SELECT COUNT(*) FROM cron_jobs
+		WHERE enabled = 1 AND notify_fail = 1 AND running = 0
+		AND last_status = 'failed' AND last_run_at > datetime('now', '-1 hour')`).Scan(&failCount)
+	if failCount > 0 {
+		return true, fmt.Sprintf("近1小时内有 %d 个计划任务执行失败", failCount)
 	}
 	return false, ""
 }

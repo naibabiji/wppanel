@@ -113,7 +113,8 @@ type SetAccessLogModePayload struct {
 }
 
 type RunCronPayload struct {
-	JobID int `json:"job_id"`
+	JobID int    `json:"job_id"`
+	Name  string `json:"name"`
 }
 
 type ManualBanPayload struct {

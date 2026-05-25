@@ -208,7 +208,8 @@ func (h *CronHandler) Run(c *gin.Context) {
 
 	db := database.GetDB()
 	var running int
-	db.QueryRow("SELECT running FROM cron_jobs WHERE id = ?", id).Scan(&running)
+	var name string
+	db.QueryRow("SELECT name, running FROM cron_jobs WHERE id = ?", id).Scan(&name, &running)
 	if running == 1 {
 		c.JSON(http.StatusConflict, models.ErrorResponse("任务正在执行中，请稍后再试"))
 		return
@@ -216,7 +217,7 @@ func (h *CronHandler) Run(c *gin.Context) {
 
 	db.Exec("UPDATE cron_jobs SET running = 1 WHERE id = ?", id)
 
-	payload := &executor.RunCronPayload{JobID: id}
+	payload := &executor.RunCronPayload{JobID: id, Name: name}
 	task := executor.GlobalQueue.Enqueue(executor.TaskRunCron, payload)
 	result := <-task.ResultCh
 

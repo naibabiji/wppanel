@@ -74,6 +74,14 @@ var upgrades = []Upgrade{
 			`INSERT OR IGNORE INTO security_settings (skey, svalue, description) VALUES ('alert_remote_backup', 'false', '远程备份失败告警（需先启用远程备份）')`,
 		},
 	},
+	{
+		Version:     "1.1.0-beta5",
+		Description: "计划任务失败告警 + 网站不可用告警种子",
+		SQL: []string{
+			`INSERT OR IGNORE INTO security_settings (skey, svalue, description) VALUES ('alert_cron_fail', 'true', '计划任务执行失败告警')`,
+			`INSERT OR IGNORE INTO security_settings (skey, svalue, description) VALUES ('alert_site', 'true', '网站不可用告警')`,
+		},
+	},
 }
 
 // LatestVersion 返回 upgrades 列表中的最新版本号。
