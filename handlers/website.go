@@ -148,12 +148,16 @@ func (h *WebsiteHandler) Create(c *gin.Context) {
 	}
 
 	payload := &executor.CreateSitePayload{
-		Domain:     req.Domain,
-		Aliases:    req.Aliases,
-		SSLEnabled: req.SSLEnabled,
-		DBPassword: req.DBPassword,
-		ExpiresAt:  req.ExpiresAt,
-		SiteType:   siteType,
+		Domain:             req.Domain,
+		Aliases:            req.Aliases,
+		SSLEnabled:         req.SSLEnabled,
+		DBPassword:         req.DBPassword,
+		ExpiresAt:          req.ExpiresAt,
+		SiteType:           siteType,
+		CleanDefaults:      req.CleanDefaults,
+		RemoveUnusedThemes: req.RemoveUnusedThemes,
+		InstallThemes:      req.InstallThemes,
+		InstallPlugins:     req.InstallPlugins,
 	}
 
 	task := executor.GlobalQueue.Enqueue(executor.TaskCreateSite, payload)

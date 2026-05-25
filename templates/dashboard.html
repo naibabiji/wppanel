@@ -9,6 +9,11 @@
             <span x-show="checking" class="text-xs text-gray-600">检查更新中...</span>
         </div>
     </div>
+    <div x-data="announcement()" x-init="fetch()" class="mb-4">
+        <div x-show="content" x-html="content"
+             class="bg-blue-900/30 border border-blue-700 rounded-lg p-4 text-blue-200 text-sm leading-relaxed prose-a:text-blue-300 prose-a:underline prose-a:hover:text-blue-100">
+        </div>
+    </div>
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-6" x-data="dashboardStats()" x-init="fetchStats()">
         <div class="card">
             <p class="text-gray-400 text-sm">CPU 使用率</p>
@@ -64,6 +69,18 @@ function versionCheck() {
                 }
             } catch(e) {}
             this.checking = false;
+        }
+    }
+}
+
+function announcement() {
+    return {
+        content: '',
+        async fetch() {
+            try {
+                const resp = await api('/announcement');
+                if (resp.success && resp.data.content) this.content = resp.data.content;
+            } catch(e) {}
         }
     }
 }

@@ -248,6 +248,21 @@ func executeCreateSite(task *Task) TaskResult {
 		sslExpiry = &expiry
 	}
 
+	if payload.SiteType != "php" {
+	if payload.CleanDefaults {
+		removeDefaultPlugins(webRoot)
+		log.Printf("已清理默认插件 site=%s", domain)
+	}
+	if payload.RemoveUnusedThemes {
+		removeUnusedThemes(webRoot)
+		log.Printf("已删除未使用默认主题 site=%s", domain)
+	}
+	if len(payload.InstallThemes) > 0 || len(payload.InstallPlugins) > 0 {
+		installExtensions(webRoot, systemUser, payload.InstallThemes, payload.InstallPlugins)
+		log.Printf("已安装扩展 site=%s themes=%v plugins=%v", domain, payload.InstallThemes, payload.InstallPlugins)
+	}
+}
+
 	db := database.GetDB()
 	_, err = db.Exec(
 		`INSERT INTO websites (name, domain, aliases, status, system_user, web_root, log_dir,

@@ -46,12 +46,16 @@ type Website struct {
 }
 
 type CreateWebsiteRequest struct {
-	Domain     string   `json:"domain" binding:"required"`
-	Aliases    []string `json:"aliases"`
-	SSLEnabled bool     `json:"ssl_enabled"`
-	DBPassword string   `json:"db_password"`
-	ExpiresAt  string   `json:"expires_at"`
-	SiteType   string   `json:"site_type"`
+	Domain             string   `json:"domain" binding:"required"`
+	Aliases            []string `json:"aliases"`
+	SSLEnabled         bool     `json:"ssl_enabled"`
+	DBPassword         string   `json:"db_password"`
+	ExpiresAt          string   `json:"expires_at"`
+	SiteType           string   `json:"site_type"`
+	CleanDefaults      bool     `json:"clean_defaults"`
+	RemoveUnusedThemes bool     `json:"remove_unused_themes"`
+	InstallThemes      []string `json:"install_themes"`
+	InstallPlugins     []string `json:"install_plugins"`
 }
 
 type UpdateWebsiteStatusRequest struct {

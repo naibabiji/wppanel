@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/naibabiji/wp-panel/database"
@@ -9,6 +11,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+var announcementCache string
+var announcementFetchedAt time.Time
 
 type DashboardHandler struct{}
 
@@ -116,4 +121,34 @@ func queryMetrics(r string) ([]string, []float64, []float64, []float64) {
 	}
 
 	return labels, cpu, memory, load
+}
+
+func GetAnnouncement(c *gin.Context) {
+	if announcementCache != "" && time.Since(announcementFetchedAt) < 30*time.Minute {
+		c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"content": announcementCache}))
+		return
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get("https://raw.githubusercontent.com/naibabiji/wp-panel/main/ANNOUNCEMENT.md")
+	if err != nil {
+		c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"content": announcementCache}))
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"content": announcementCache}))
+		return
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"content": announcementCache}))
+		return
+	}
+
+	announcementCache = strings.TrimSpace(string(body))
+	announcementFetchedAt = time.Now()
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"content": announcementCache}))
 }

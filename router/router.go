@@ -143,6 +143,7 @@ func SetupRouter(cfg *config.Config, tmplFS embed.FS, staticFS embed.FS, version
 	dashboardHandler := &handlers.DashboardHandler{}
 	protected.GET("/api/dashboard/stats", dashboardHandler.GetStats)
 	protected.GET("/api/dashboard/metrics", dashboardHandler.GetMetrics)
+	protected.GET("/api/announcement", handlers.GetAnnouncement)
 
 	firewallHandler := &handlers.FirewallHandler{}
 	protected.GET("/api/firewall/bans", firewallHandler.ListBans)
@@ -194,6 +195,12 @@ func SetupRouter(cfg *config.Config, tmplFS embed.FS, staticFS embed.FS, version
 	protected.PUT("/api/settings/remote-backup", handlers.SaveRemoteBackup)
 	protected.POST("/api/settings/remote-backup/test", handlers.TestRemoteBackup)
 
+	extensionHandler := &handlers.ExtensionHandler{}
+	protected.GET("/api/extensions", extensionHandler.List)
+	protected.PUT("/api/extensions", extensionHandler.Save)
+	protected.DELETE("/api/extensions/:id", extensionHandler.Delete)
+	protected.POST("/api/extensions/reset", extensionHandler.Reset)
+
 	protected.GET("/", func(c *gin.Context) {
 		c.HTML(http.StatusOK, "dashboard.html", pageData(suffix, "dashboard", "dashboard_content", c))
 	})
@@ -221,6 +228,9 @@ func SetupRouter(cfg *config.Config, tmplFS embed.FS, staticFS embed.FS, version
 	protected.GET("/alert", func(c *gin.Context) {
 		c.HTML(http.StatusOK, "alert.html", pageData(suffix, "alert", "alert_content", c))
 	})
+	protected.GET("/extensions", func(c *gin.Context) {
+		c.HTML(http.StatusOK, "extension.html", pageData(suffix, "extensions", "extensions_content", c))
+	})
 	protected.GET("/settings", func(c *gin.Context) {
 		c.HTML(http.StatusOK, "settings.html", pageData(suffix, "settings", "settings_content", c))
 	})
@@ -246,15 +256,16 @@ func SetupRouter(cfg *config.Config, tmplFS embed.FS, staticFS embed.FS, version
 }
 
 var pageTitles = map[string]string{
-	"dashboard": "控制台",
-	"websites":  "网站管理",
-	"cron":      "计划任务",
-	"firewall":  "安全防御",
-	"security":  "安全设置",
-	"files":     "文件管理",
-	"software":  "软件管理",
-	"alert":     "告警通知",
-	"settings":  "面板设置",
+	"dashboard":  "控制台",
+	"websites":   "网站管理",
+	"cron":       "计划任务",
+	"firewall":   "安全防御",
+	"security":   "安全设置",
+	"files":      "文件管理",
+	"software":   "软件管理",
+	"alert":      "告警通知",
+	"extensions": "扩展配置",
+	"settings":   "面板设置",
 }
 
 func pageData(suffix string, active string, contentTpl string, c *gin.Context) gin.H {

@@ -265,6 +265,28 @@ var migrations = []string{
 	)`,
 	`CREATE INDEX IF NOT EXISTS idx_alert_log_type ON alert_log(alert_type, created_at)`,
 
+	// ============================================================
+	// wp_extension_config — 默认主题/插件自动安装配置
+	// ============================================================
+	`CREATE TABLE IF NOT EXISTS wp_extension_config (
+		id      INTEGER PRIMARY KEY AUTOINCREMENT,
+		etype   TEXT    NOT NULL,
+		slug    TEXT    NOT NULL,
+		name    TEXT    NOT NULL,
+		enabled INTEGER NOT NULL DEFAULT 1,
+		UNIQUE(etype, slug)
+	)`,
+	`INSERT OR IGNORE INTO wp_extension_config (etype, slug, name, enabled) VALUES
+		('theme',  'hello-elementor',   'Hello Elementor',  1),
+		('theme',  'astra',             'Astra',            1),
+		('theme',  'kadence',           'Kadence',          1),
+		('theme',  'blocksy',           'Blocksy',          1),
+		('plugin', 'elementor',         'Elementor',        1),
+		('plugin', 'wordpress-seo',     'Yoast SEO',        1),
+		('plugin', 'seo-by-rank-math',  'Rank Math SEO',    1),
+		('plugin', 'woocommerce',       'WooCommerce',      1),
+		('plugin', 'naibabiji-b2b-product-showcase', 'B2B Product Catalog', 1)`,
+
 	// 远程备份设置
 	`CREATE TABLE IF NOT EXISTS remote_backup_settings (
 			id          INTEGER PRIMARY KEY AUTOINCREMENT,

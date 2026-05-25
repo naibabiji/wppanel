@@ -1,6 +1,6 @@
 {{template "base" .}}
 {{define "websites_new_content"}}
-<div x-data="createWebsite()">
+<div x-data="createWebsite()" x-init="init()">
     <h2 class="text-xl font-bold text-white mb-6">创建网站</h2>
     <div class="card max-w-2xl">
         <form @submit.prevent="submit">
@@ -45,6 +45,43 @@
                 </label>
             </div>
 
+            <div x-show="siteType === 'wordpress'" class="mb-6 p-4 bg-gray-800/50 rounded-lg border border-gray-700">
+                <h3 class="text-sm font-semibold text-gray-300 mb-3">WordPress 安装选项</h3>
+
+                <label class="flex items-center space-x-2 cursor-pointer mb-3">
+                    <input type="checkbox" x-model="cleanDefaults" class="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-600 focus:ring-blue-500">
+                    <span class="text-gray-300 text-sm">自动清理默认插件（Akismet + Hello Dolly）</span>
+                </label>
+
+                <label class="flex items-center space-x-2 cursor-pointer mb-4">
+                    <input type="checkbox" x-model="removeUnusedThemes" class="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-600 focus:ring-blue-500">
+                    <span class="text-gray-300 text-sm">删除未使用的默认主题（Twenty Twenty-Four / Twenty Twenty-Three）</span>
+                </label>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <p class="text-xs text-gray-500 mb-2">安装主题</p>
+                        <template x-for="t in enabledThemes" :key="t.id">
+                            <label class="flex items-center space-x-2 cursor-pointer mb-1">
+                                <input type="checkbox" :value="t.slug" x-model="installThemes" class="w-3.5 h-3.5 rounded border-gray-600 bg-gray-700 text-blue-600">
+                                <span class="text-gray-300 text-xs" x-text="t.name"></span>
+                            </label>
+                        </template>
+                        <p x-show="enabledThemes.length === 0" class="text-xs text-gray-600">暂无已启用的主题，去「扩展配置」添加</p>
+                    </div>
+                    <div>
+                        <p class="text-xs text-gray-500 mb-2">安装插件</p>
+                        <template x-for="p in enabledPlugins" :key="p.id">
+                            <label class="flex items-center space-x-2 cursor-pointer mb-1">
+                                <input type="checkbox" :value="p.slug" x-model="installPlugins" class="w-3.5 h-3.5 rounded border-gray-600 bg-gray-700 text-blue-600">
+                                <span class="text-gray-300 text-xs" x-text="p.name"></span>
+                            </label>
+                        </template>
+                        <p x-show="enabledPlugins.length === 0" class="text-xs text-gray-600">暂无已启用的插件，去「扩展配置」添加</p>
+                    </div>
+                </div>
+            </div>
+
             <div x-show="error" class="mb-4 p-3 bg-red-900/50 border border-red-700 rounded-lg text-red-300 text-sm"
                  x-text="error"></div>
             <div x-show="success" class="mb-4 p-3 bg-green-900/50 border border-green-700 rounded-lg text-green-300 text-sm"
@@ -67,9 +104,29 @@ function createWebsite() {
         sslEnabled: false,
         expiresAt: '',
         siteType: 'wordpress',
+        cleanDefaults: true,
+        removeUnusedThemes: true,
+        extensions: [],
+        installThemes: [],
+        installPlugins: [],
         loading: false,
         error: '',
         success: '',
+        init() {
+            this.loadExtensions();
+        },
+        get enabledThemes() { return this.extensions.filter(e => e.etype === 'theme' && e.enabled); },
+        get enabledPlugins() { return this.extensions.filter(e => e.etype === 'plugin' && e.enabled); },
+        async loadExtensions() {
+            try {
+                const resp = await api('/extensions');
+                if (resp.success) {
+                    this.extensions = resp.data;
+                    this.installThemes = resp.data.filter(e => e.etype === 'theme' && e.enabled).map(e => e.slug);
+                    this.installPlugins = resp.data.filter(e => e.etype === 'plugin' && e.enabled).map(e => e.slug);
+                }
+            } catch(e) {}
+        },
         generatePassword() {
             const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
             let pw = '';
@@ -82,17 +139,21 @@ function createWebsite() {
             this.success = '';
             try {
                 const aliasesList = this.aliases.split('\n').map(s => s.trim()).filter(Boolean);
-                const resp = await api('/websites', {
-                    method: 'POST',
-                    body: {
-                        domain: this.domain.trim(),
-                        aliases: aliasesList,
-                        db_password: this.dbPassword,
-                        ssl_enabled: this.sslEnabled,
-                        expires_at: this.expiresAt || null,
-                        site_type: this.siteType
-                    }
-                });
+                const body = {
+                    domain: this.domain.trim(),
+                    aliases: aliasesList,
+                    db_password: this.dbPassword,
+                    ssl_enabled: this.sslEnabled,
+                    expires_at: this.expiresAt || null,
+                    site_type: this.siteType
+                };
+                if (this.siteType === 'wordpress') {
+                    body.clean_defaults = this.cleanDefaults;
+                    body.remove_unused_themes = this.removeUnusedThemes;
+                    body.install_themes = this.installThemes;
+                    body.install_plugins = this.installPlugins;
+                }
+                const resp = await api('/websites', { method: 'POST', body });
                 if (resp.success) {
                     this.success = '网站 ' + this.domain + ' 创建成功！';
                     this.domain = '';

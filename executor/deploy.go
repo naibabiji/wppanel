@@ -110,3 +110,40 @@ func downloadWP(localPath, destPath string) error {
 
 	return nil
 }
+
+func removeDefaultPlugins(webRoot string) {
+	os.RemoveAll(filepath.Join(webRoot, "wp-content", "plugins", "akismet"))
+	os.Remove(filepath.Join(webRoot, "wp-content", "plugins", "hello.php"))
+}
+
+func removeUnusedThemes(webRoot string) {
+	for _, slug := range []string{"twentytwentyfour", "twentytwentythree"} {
+		os.RemoveAll(filepath.Join(webRoot, "wp-content", "themes", slug))
+	}
+}
+
+func installExtensions(webRoot, systemUser string, themes, plugins []string) {
+	for _, slug := range themes {
+		installZip(filepath.Join(webRoot, "wp-content", "themes"), slug, "theme")
+	}
+	for _, slug := range plugins {
+		installZip(filepath.Join(webRoot, "wp-content", "plugins"), slug, "plugin")
+	}
+	if len(themes) > 0 || len(plugins) > 0 {
+		executeCommand("chown", "-R", systemUser+":www-data",
+			filepath.Join(webRoot, "wp-content", "themes"),
+			filepath.Join(webRoot, "wp-content", "plugins"))
+	}
+}
+
+func installZip(destDir, slug, etype string) {
+	url := fmt.Sprintf("https://downloads.wordpress.org/%s/%s.latest-stable.zip", etype, slug)
+	zipPath := filepath.Join(os.TempDir(), fmt.Sprintf("wp_ext_%s_%s.zip", etype, slug))
+	defer os.Remove(zipPath)
+
+	if _, err := executeCommand("wget", "-q", "-T", "30", "-O", zipPath, url); err != nil {
+		return
+	}
+	os.MkdirAll(destDir, 0755)
+	executeCommand("unzip", "-q", "-o", zipPath, "-d", destDir)
+}

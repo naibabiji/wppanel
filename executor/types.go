@@ -55,12 +55,16 @@ type TaskResult struct {
 }
 
 type CreateSitePayload struct {
-	Domain     string
-	Aliases    []string
-	SSLEnabled bool
-	DBPassword string
-	ExpiresAt  string
-	SiteType   string
+	Domain              string
+	Aliases             []string
+	SSLEnabled          bool
+	DBPassword          string
+	ExpiresAt           string
+	SiteType            string
+	CleanDefaults       bool     `json:"clean_defaults"`
+	RemoveUnusedThemes  bool     `json:"remove_unused_themes"`
+	InstallThemes       []string `json:"install_themes"`
+	InstallPlugins      []string `json:"install_plugins"`
 }
 
 type DeleteSitePayload struct {
