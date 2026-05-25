@@ -172,11 +172,18 @@
 
             <!-- 右侧：设置助手 -->
             <div class="p-4 rounded" style="background-color: #0f172a; border: 1px solid #1e293b;">
-                <h4 class="text-sm font-medium text-gray-300 mb-3">远程服务器一键设置</h4>
-                <p class="text-xs text-gray-500 mb-3">在远程服务器以 root 执行以下命令，自动创建备份账号和目录：</p>
+                <div class="flex items-center justify-between mb-3">
+                    <h4 class="text-sm font-medium text-gray-300">远程服务器一键设置</h4>
+                    <div class="flex rounded overflow-hidden" style="border: 1px solid #334155;">
+                        <button @click="helperMode = 'create'" :class="helperMode === 'create' ? 'text-white' : 'text-gray-500'" class="text-xs py-1 px-2" :style="helperMode === 'create' ? 'backgroundColor: #1e3a5f' : 'backgroundColor: #0f172a'">创建</button>
+                        <button @click="helperMode = 'delete'" :class="helperMode === 'delete' ? 'text-white' : 'text-gray-500'" class="text-xs py-1 px-2" :style="helperMode === 'delete' ? 'backgroundColor: #b91c1c' : 'backgroundColor: #0f172a'">删除</button>
+                    </div>
+                </div>
+                <p x-show="helperMode === 'create'" class="text-xs text-gray-500 mb-3">在远程服务器以 root 执行以下命令，自动创建备份账号和目录：</p>
+                <p x-show="helperMode === 'delete'" class="text-xs text-red-400 mb-3"><strong>删除后无法恢复。</strong>在远程服务器以 root 执行，将删除账号和备份目录：</p>
 
                 <div class="space-y-3 text-xs">
-                    <div class="grid grid-cols-3 gap-2">
+                    <div class="grid grid-cols-3 gap-2" x-show="helperMode === 'create'">
                         <div class="col-span-2">
                             <label class="text-gray-500">用户名</label>
                             <input type="text" x-model="cfg.username" class="input-field text-sm py-1 w-full" placeholder="wpbackup">
@@ -189,6 +196,10 @@
                             </div>
                         </div>
                     </div>
+                    <div x-show="helperMode === 'delete'">
+                        <label class="text-gray-500">用户名</label>
+                        <input type="text" x-model="cfg.username" class="input-field text-sm py-1 w-full" placeholder="wpbackup">
+                    </div>
                     <div>
                         <label class="text-gray-500">备份目录</label>
                         <input type="text" x-model="cfg.remote_path" class="input-field text-sm py-1 w-full" :placeholder="'/home/' + (cfg.username || 'wpbackup') + '/backup'">
@@ -197,7 +208,7 @@
                     <div class="p-3 rounded" style="background-color: #020617; border: 1px solid #1e293b;">
                         <div class="flex items-center justify-between mb-2">
                             <span class="text-gray-500">复制到远程服务器执行：</span>
-                            <button @click="copyCmd()" class="text-xs py-0.5 px-2 rounded" style="background-color: #1e3a5f; color: #93c5fd;">复制命令</button>
+                            <button @click="copyCmd()" class="text-xs py-0.5 px-2 rounded" :style="helperMode === 'delete' ? 'background-color: #7f1d1d; color: #fca5a5' : 'background-color: #1e3a5f; color: #93c5fd'">复制命令</button>
                         </div>
                         <pre class="font-mono text-gray-300 whitespace-pre-wrap text-xs leading-relaxed" x-text="genCmd()" style="word-break: break-all;"></pre>
                     </div>
@@ -438,6 +449,7 @@ function remoteBackup() {
         saveOK: false,
         showHelp: false,
         helperPass: '',
+        helperMode: 'create',
         async fetchRemote() {
             try {
                 const r = await api('/settings/remote-backup');
@@ -483,9 +495,14 @@ function remoteBackup() {
         },
         genCmd() {
             var u = this.cfg.username || 'wpbackup';
+            var dir = this.cfg.remote_path || '/home/' + u + '/backup';
+
+            if (this.helperMode === 'delete') {
+                return 'userdel -r ' + u + ' && rm -rf ' + dir;
+            }
+
             if (!this.helperPass) this.genPassword();
             var p = this.helperPass;
-            var dir = this.cfg.remote_path || '/home/' + u + '/backup';
             var authType = this.cfg.auth_type || 'key';
 
             var lines = [
