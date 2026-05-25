@@ -242,6 +242,7 @@ var migrations = []string{
 		site_id    INTEGER NOT NULL UNIQUE,
 		enabled    INTEGER NOT NULL DEFAULT 0,
 		keep_count INTEGER NOT NULL DEFAULT 7,
+		file_keep_count INTEGER NOT NULL DEFAULT 3,
 		FOREIGN KEY (site_id) REFERENCES websites(id) ON DELETE CASCADE
 	)`,
 

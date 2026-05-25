@@ -82,6 +82,13 @@ var upgrades = []Upgrade{
 			`INSERT OR IGNORE INTO security_settings (skey, svalue, description) VALUES ('alert_site', 'true', '网站不可用告警')`,
 		},
 	},
+	{
+		Version:     "1.1.0-beta6",
+		Description: "文件备份独立保留份数",
+		SQL: []string{
+			`ALTER TABLE backup_settings ADD COLUMN file_keep_count INTEGER NOT NULL DEFAULT 3`,
+		},
+	},
 }
 
 // LatestVersion 返回 upgrades 列表中的最新版本号。

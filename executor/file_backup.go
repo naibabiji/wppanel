@@ -20,6 +20,11 @@ func ExecuteFileBackup(siteID int, mode string) (string, error) {
 
 	backupDir := filepath.Join("/www/server/panel/backups", domain, "files")
 	os.MkdirAll(backupDir, 0755)
+
+	var fileKeepCount int
+	if err := db.QueryRow("SELECT file_keep_count FROM backup_settings WHERE site_id = ?", siteID).Scan(&fileKeepCount); err != nil || fileKeepCount <= 0 {
+		fileKeepCount = 3
+	}
 	stampFile := filepath.Join(backupDir, ".last_backup.stamp")
 
 	ts := time.Now().Format("20060102_150405")
@@ -69,8 +74,8 @@ func ExecuteFileBackup(siteID int, mode string) (string, error) {
 	// Update stamp
 	os.WriteFile(stampFile, []byte(time.Now().Format(time.RFC3339)), 0644)
 
-	// Clean old backups, keep 7
-	cleanOldBackups(backupDir, 7)
+	// Clean old backups
+	cleanOldBackups(backupDir, fileKeepCount)
 
 	go SyncBackupToRemote(fullPath)
 	logMsg := fmt.Sprintf("%s 文件备份成功: %s (%s)", domain, tarName, map[bool]string{true: "全量", false: "增量"}[isFull])
