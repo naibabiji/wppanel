@@ -59,7 +59,17 @@ maxretry = 30
 findtime = 60
 bantime = %d
 ignoreip = %s
-`, maxRetry, findTime, banTime, ignoreIPs, banTime, ignoreIPs)
+
+[wppanel-sshd]
+enabled = true
+filter = sshd
+action = nftables-multiport[name=wppanel-sshd, port="ssh"]
+logpath = /var/log/auth.log
+maxretry = %d
+findtime = %d
+bantime = %d
+ignoreip = %s
+`, maxRetry, findTime, banTime, ignoreIPs, banTime, ignoreIPs, maxRetry, findTime, banTime, ignoreIPs)
 
 	if err := os.WriteFile(jailDir+"/wppanel.conf", []byte(jailConfig), 0644); err != nil {
 		return fmt.Errorf("写入 jail 配置失败: %w", err)
@@ -167,7 +177,7 @@ func ApplyFail2banSettings() {
 func SyncFail2banBans() {
 	ipJails := make(map[string]string)
 
-	for _, jail := range []string{"wppanel", "wppanel-404"} {
+	for _, jail := range []string{"wppanel", "wppanel-404", "wppanel-sshd"} {
 		out, err := executeCommand("fail2ban-client", "status", jail)
 		if err != nil || out == "" {
 			continue
@@ -207,6 +217,9 @@ func SyncFail2banBans() {
 		if jail == "wppanel-404" {
 			reason = "404 泛滥检测"
 		}
+		if jail == "wppanel-sshd" {
+			reason = "SSH 暴力破解"
+		}
 
 		if prevMaxLevel >= 2 || prevBans > 0 {
 			banLevel = 3
@@ -214,6 +227,9 @@ func SyncFail2banBans() {
 			reason = "Fail2ban 自动封禁（24h内重复违规，升级至24小时）"
 			if jail == "wppanel-404" {
 				reason = "404 泛滥检测（24h内重复违规，升级至24小时）"
+			}
+			if jail == "wppanel-sshd" {
+				reason = "SSH 暴力破解（24h内重复违规，升级至24小时）"
 			}
 
 			l3Count := countLevel3(ip)
@@ -223,6 +239,9 @@ func SyncFail2banBans() {
 				reason = "Fail2ban 自动封禁（高危：累计3次严重违规，永久封禁）"
 				if jail == "wppanel-404" {
 					reason = "404 泛滥检测（高危：累计3次严重违规，永久封禁）"
+				}
+				if jail == "wppanel-sshd" {
+					reason = "SSH 暴力破解（高危：累计3次严重违规，永久封禁）"
 				}
 			}
 		}
@@ -536,7 +555,7 @@ func UnbanAllIPs() string {
 
 	executeCommand("bash", "-c", "nft flush set ip wppanel_persist banned_ips 2>/dev/null; true")
 
-	for _, jail := range []string{"wppanel", "wppanel-404"} {
+	for _, jail := range []string{"wppanel", "wppanel-404", "wppanel-sshd"} {
 		out, err := executeCommand("fail2ban-client", "status", jail)
 		if err == nil && out != "" {
 			for _, ip := range parseBannedIPs(out) {

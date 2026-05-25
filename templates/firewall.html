@@ -41,7 +41,7 @@
                 <div>
                     <p class="text-white font-semibold mb-1">封禁机制</p>
                     <ul class="space-y-1 ml-2">
-                        <li><span class="text-blue-400">Fail2ban</span> — 管理网站防护封禁（jail: <code class="text-gray-300">wppanel</code>、<code class="text-gray-300">wppanel-404</code>），到期自动释放</li>
+                        <li><span class="text-blue-400">Fail2ban</span> — 管理网站防护封禁（jail: <code class="text-gray-300">wppanel</code>、<code class="text-gray-300">wppanel-404</code>）和 SSH 防护封禁（jail: <code class="text-gray-300">wppanel-sshd</code>），到期自动释放</li>
                         <li><span class="text-purple-400">Nftables 持久</span> — 管理永久封禁、扫描防御封禁（来源: <code class="text-gray-300">panel_scan</code>）和面板认证封禁（来源: <code class="text-gray-300">panel</code>），独立于 Fail2ban，到期自动解除</li>
                     </ul>
                 </div>
@@ -75,6 +75,10 @@
                         <div>
                             <span class="text-gray-500"># 查看 404 泛滥封禁</span>
                             <br><span class="text-green-400">fail2ban-client</span> status wppanel-404
+                        </div>
+                        <div>
+                            <span class="text-gray-500"># 查看 SSH 暴力破解封禁</span>
+                            <br><span class="text-green-400">fail2ban-client</span> status wppanel-sshd
                         </div>
                         <div>
                             <span class="text-gray-500"># 查看 Nftables 持久封禁（扫描防御 + 面板认证封禁）</span>
@@ -201,7 +205,9 @@ function firewallManager() {
         banLevelClass(l) { return ['','badge-info','badge-warning','badge-danger','badge-danger','badge-danger'][l] || 'badge-info'; },
         sourceLabel(ban) {
             if (ban.ban_level >= 5) return 'Nftables 持久';
-            if (ban.source_jail === 'wppanel') return 'Fail2ban';
+            if (ban.source_jail === 'wppanel') return 'Web防护';
+            if (ban.source_jail === 'wppanel-404') return '404防御';
+            if (ban.source_jail === 'wppanel-sshd') return 'SSH防护';
             if (ban.source_jail === 'panel') return '面板';
             if (ban.source_jail === 'panel_scan') return '扫描防御';
             return ban.source_jail || '--';
@@ -209,6 +215,8 @@ function firewallManager() {
         sourceClass(ban) {
             if (ban.ban_level >= 4) return 'text-purple-400';
             if (ban.source_jail === 'wppanel') return 'text-blue-400';
+            if (ban.source_jail === 'wppanel-404') return 'text-yellow-400';
+            if (ban.source_jail === 'wppanel-sshd') return 'text-green-400';
             return 'text-gray-400';
         },
         formatTime(t) { return t ? new Date(t).toLocaleString('zh-CN') : '--'; },
