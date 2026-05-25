@@ -213,10 +213,10 @@ function firewallManager() {
             return ban.source_jail || '--';
         },
         sourceClass(ban) {
-            if (ban.ban_level >= 4) return 'text-purple-400';
             if (ban.source_jail === 'wppanel') return 'text-blue-400';
             if (ban.source_jail === 'wppanel-404') return 'text-yellow-400';
             if (ban.source_jail === 'wppanel-sshd') return 'text-green-400';
+            if (ban.ban_level >= 4) return 'text-purple-400';
             return 'text-gray-400';
         },
         formatTime(t) { return t ? new Date(t).toLocaleString('zh-CN') : '--'; },
