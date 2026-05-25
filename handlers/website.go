@@ -839,7 +839,17 @@ func (h *WebsiteHandler) ReinstallWordPress(c *gin.Context) {
 	}
 
 	cfg := config.AppConfig
-	if err := executor.ReinstallWordPress(cfg.Paths.WordPressPackage, webRoot, dbName, dbUser, systemUser, cfg); err != nil {
+
+		var req struct {
+			CleanDefaults      bool     `json:"clean_defaults"`
+			RemoveUnusedThemes bool     `json:"remove_unused_themes"`
+			InstallThemes      []string `json:"install_themes"`
+			InstallPlugins     []string `json:"install_plugins"`
+		}
+		c.ShouldBindJSON(&req)
+
+		if err := executor.ReinstallWordPress(cfg.Paths.WordPressPackage, webRoot, dbName, dbUser, systemUser, cfg,
+			req.CleanDefaults, req.RemoveUnusedThemes, req.InstallThemes, req.InstallPlugins); err != nil {
 		log.Printf("WordPress 重装失败 site=%d: %v", id, err)
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse("WordPress 重装失败"))
 		return

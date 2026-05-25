@@ -6,6 +6,50 @@
         <a href="/{{.RandomSuffix}}/websites/new" class="btn-primary">创建网站</a>
     </div>
 
+    <!-- 重装 WordPress 对话框 -->
+    <div x-show="reinstallModal.show" class="fixed inset-0 z-50 flex items-center justify-center bg-black/60" @click.self="reinstallModal.show = false">
+        <div class="bg-gray-800 border border-gray-700 rounded-lg p-6 w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto">
+            <h3 class="text-lg font-bold text-white mb-2" x-text="'重装 WordPress — ' + (reinstallModal.site?.domain || '')"></h3>
+            <p class="text-sm text-red-400 mb-4">⚠ 此操作将删除所有网站文件、清空数据库并重新部署全新 WordPress，所有数据不可恢复。</p>
+
+            <label class="flex items-center space-x-2 cursor-pointer mb-3">
+                <input type="checkbox" x-model="reinstallModal.cleanDefaults" class="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-600">
+                <span class="text-gray-300 text-sm">自动清理默认插件（Akismet + Hello Dolly）</span>
+            </label>
+
+            <label class="flex items-center space-x-2 cursor-pointer mb-4">
+                <input type="checkbox" x-model="reinstallModal.removeUnusedThemes" class="w-4 h-4 rounded border-gray-600 bg-gray-700 text-blue-600">
+                <span class="text-gray-300 text-sm">删除未使用的默认主题（Twenty Twenty-Four / Twenty Twenty-Three）</span>
+            </label>
+
+            <div class="grid grid-cols-2 gap-4 mb-4">
+                <div>
+                    <p class="text-xs text-gray-500 mb-2">安装主题</p>
+                    <template x-for="t in reinstallModal.extensions.filter(e => e.etype === 'theme' && e.enabled)" :key="t.id">
+                        <label class="flex items-center space-x-2 cursor-pointer mb-1">
+                            <input type="checkbox" :value="t.slug" x-model="reinstallModal.installThemes" class="w-3.5 h-3.5 rounded border-gray-600 bg-gray-700 text-blue-600">
+                            <span class="text-gray-300 text-xs" x-text="t.name"></span>
+                        </label>
+                    </template>
+                </div>
+                <div>
+                    <p class="text-xs text-gray-500 mb-2">安装插件</p>
+                    <template x-for="p in reinstallModal.extensions.filter(e => e.etype === 'plugin' && e.enabled)" :key="p.id">
+                        <label class="flex items-center space-x-2 cursor-pointer mb-1">
+                            <input type="checkbox" :value="p.slug" x-model="reinstallModal.installPlugins" class="w-3.5 h-3.5 rounded border-gray-600 bg-gray-700 text-blue-600">
+                            <span class="text-gray-300 text-xs" x-text="p.name"></span>
+                        </label>
+                    </template>
+                </div>
+            </div>
+
+            <div class="flex justify-end space-x-3">
+                <button @click="reinstallModal.show = false" class="btn-secondary text-sm">取消</button>
+                <button @click="doReinstallWP()" class="text-sm py-2 px-4 rounded text-white" style="background-color: #7f1d1d;">确认重装</button>
+            </div>
+        </div>
+    </div>
+
     <div class="card">
         <div class="overflow-x-auto">
             <table class="w-full">
@@ -81,6 +125,15 @@ function websiteList() {
     return {
         websites: [],
         reinstallingId: null,
+        reinstallModal: {
+            show: false,
+            site: null,
+            extensions: [],
+            cleanDefaults: true,
+            removeUnusedThemes: true,
+            installThemes: [],
+            installPlugins: [],
+        },
         async fetchList() {
             try {
                 const resp = await api('/websites');
@@ -98,11 +151,32 @@ function websiteList() {
             } catch (e) { showToast(e.message, 'error'); }
         },
         async reinstallWP(site) {
-            if (!await confirmModal('确认重装 ' + site.domain + ' 的 WordPress？\n\n⚠ 此操作将删除所有网站文件、清空数据库并重新部署全新 WordPress，所有数据将不可恢复。请确认已备份重要数据。')) return;
+            this.reinstallModal.site = site;
+            this.reinstallModal.cleanDefaults = true;
+            this.reinstallModal.removeUnusedThemes = true;
+            this.reinstallModal.installThemes = [];
+            this.reinstallModal.installPlugins = [];
+            this.reinstallModal.extensions = [];
+            try {
+                const resp = await api('/extensions');
+                if (resp.success) this.reinstallModal.extensions = resp.data;
+            } catch(e) {}
+            this.reinstallModal.show = true;
+        },
+        async doReinstallWP() {
+            const site = this.reinstallModal.site;
+            this.reinstallModal.show = false;
             this.reinstallingId = site.id;
             showToast('正在重装 ' + site.domain + '，请稍候...', 'info');
             try {
-                const resp = await api('/websites/' + site.id + '/reinstall-wp', { method: 'POST' });
+                const body = {};
+                if (site.site_type === 'wordpress') {
+                    body.clean_defaults = this.reinstallModal.cleanDefaults;
+                    body.remove_unused_themes = this.reinstallModal.removeUnusedThemes;
+                    body.install_themes = this.reinstallModal.installThemes;
+                    body.install_plugins = this.reinstallModal.installPlugins;
+                }
+                const resp = await api('/websites/' + site.id + '/reinstall-wp', { method: 'POST', body });
                 if (resp.success) {
                     showToast(resp.data?.message || 'WordPress 重装完成', 'success');
                 }

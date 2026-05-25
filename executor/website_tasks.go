@@ -629,7 +629,8 @@ func nilIfEmpty(s string) interface{} {
 	return s
 }
 
-func ReinstallWordPress(packagePath, webRoot, dbName, dbUser, systemUser string, cfg *config.Config) error {
+func ReinstallWordPress(packagePath, webRoot, dbName, dbUser, systemUser string, cfg *config.Config,
+	cleanDefaults, removeThemes bool, installThemes, installPlugins []string) error {
 	os.RemoveAll(webRoot)
 	if err := os.MkdirAll(webRoot, 0755); err != nil {
 		return fmt.Errorf("重建网站目录失败: %w", err)
@@ -655,6 +656,16 @@ func ReinstallWordPress(packagePath, webRoot, dbName, dbUser, systemUser string,
 
 	if _, err := executeCommand("chown", "-R", systemUser+":www-data", webRoot); err != nil {
 		fmt.Fprintf(os.Stderr, "设置权限警告: %v\n", err)
+	}
+
+	if cleanDefaults {
+		removeDefaultPlugins(webRoot)
+	}
+	if removeThemes {
+		removeUnusedThemes(webRoot)
+	}
+	if len(installThemes) > 0 || len(installPlugins) > 0 {
+		installExtensions(webRoot, systemUser, installThemes, installPlugins)
 	}
 
 	return nil
