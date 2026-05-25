@@ -18,6 +18,8 @@ func deployFail2ban(whitelistIPs string, maxRetry, findTime, banTime int) error 
 	os.MkdirAll(jailDir, 0755)
 	os.MkdirAll(filterDir, 0755)
 
+	ensureLogFiles()
+
 	ignoreIPs := "127.0.0.1/8"
 	if whitelistIPs != "" {
 		for _, ip := range strings.Split(whitelistIPs, "\n") {
@@ -101,6 +103,27 @@ ignoreregex =
 
 	_, _ = executeCommand("systemctl", "restart", "fail2ban")
 	return nil
+}
+
+func ensureLogFiles() {
+	entries, err := os.ReadDir("/www/wwwlogs")
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		touch("/www/wwwlogs/" + e.Name() + "/access.log")
+		touch("/www/wwwlogs/" + e.Name() + "/error.log")
+	}
+}
+
+func touch(path string) {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+	if err == nil {
+		f.Close()
+	}
 }
 
 func executeRefreshWhitelist(task *Task) TaskResult {
