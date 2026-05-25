@@ -383,7 +383,7 @@ class WP_Panel_Optimizer {
     }
 
     private static function check_github_release() {
-        $transient = get_transient('wpp_optimizer_release');
+        $transient = get_transient('wpp_optimizer_release_v2');
         if ($transient !== false) return $transient;
 
         $resp = wp_remote_get('https://raw.githubusercontent.com/naibabiji/wp-panel/main/wp-panel-optimizer/wp-panel-optimizer.php', [
@@ -404,7 +404,7 @@ class WP_Panel_Optimizer {
             'tag_name' => 'v' . $m[1],
             'html_url' => 'https://github.com/naibabiji/wp-panel/releases',
         ];
-        set_transient('wpp_optimizer_release', $result, HOUR_IN_SECONDS);
+        set_transient('wpp_optimizer_release_v2', $result, HOUR_IN_SECONDS);
         return $result;
     }
 
