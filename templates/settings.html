@@ -179,7 +179,7 @@
                     <div class="grid grid-cols-3 gap-2">
                         <div class="col-span-2">
                             <label class="text-gray-500">用户名</label>
-                            <input type="text" x-model="helperUser" class="input-field text-sm py-1 w-full" placeholder="wpbackup">
+                            <input type="text" x-model="cfg.username" class="input-field text-sm py-1 w-full" placeholder="wpbackup">
                         </div>
                         <div>
                             <label class="text-gray-500">密码</label>
@@ -191,7 +191,7 @@
                     </div>
                     <div>
                         <label class="text-gray-500">备份目录</label>
-                        <input type="text" x-model="helperDir" class="input-field text-sm py-1 w-full" :placeholder="'/home/' + helperUser + '/backup'">
+                        <input type="text" x-model="cfg.remote_path" class="input-field text-sm py-1 w-full" :placeholder="'/home/' + (cfg.username || 'wpbackup') + '/backup'">
                     </div>
 
                     <div class="p-3 rounded" style="background-color: #020617; border: 1px solid #1e293b;">
@@ -437,16 +437,12 @@ function remoteBackup() {
         saveMsg: '',
         saveOK: false,
         showHelp: false,
-        helperUser: 'wpbackup',
         helperPass: '',
-        helperDir: '',
         async fetchRemote() {
             try {
                 const r = await api('/settings/remote-backup');
                 if (r.success) {
                     Object.assign(this.cfg, r.data);
-                    this.helperUser = this.cfg.username || 'wpbackup';
-                    this.helperDir = this.cfg.remote_path || '';
                 }
                 if (this.cfg.auth_type === 'key') this.loadPublicKey();
             } catch(e) {}
@@ -486,10 +482,10 @@ function remoteBackup() {
             this.helperPass = pw;
         },
         genCmd() {
-            var u = this.helperUser || 'wpbackup';
+            var u = this.cfg.username || 'wpbackup';
             if (!this.helperPass) this.genPassword();
             var p = this.helperPass;
-            var dir = this.helperDir || '/home/' + u + '/backup';
+            var dir = this.cfg.remote_path || '/home/' + u + '/backup';
             var authType = this.cfg.auth_type || 'key';
 
             var lines = [
