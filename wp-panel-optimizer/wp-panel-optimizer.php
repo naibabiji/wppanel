@@ -183,10 +183,6 @@ class WP_Panel_Optimizer {
                 <?php wp_nonce_field('wpp_optimizer_settings'); ?>
                 <table class="form-table">
                     <tr>
-                        <th>面板地址</th>
-                        <td><code><?php echo esc_html($panelUrl ?: '未配置'); ?></code></td>
-                    </tr>
-                    <tr>
                         <th>API Key</th>
                         <td><code><?php echo esc_html($apiKey ? substr($apiKey, 0, 8) . '...' : '未配置'); ?></code></td>
                     </tr>

@@ -1047,11 +1047,11 @@ func (h *CacheHelperHandler) FindByDomain(c *gin.Context) {
 		return
 	}
 
-	var siteID, fcacheEnabled, fcacheTTL, disableUpdates, disableEditing int
+	var siteID, fcacheEnabled, fcacheTTL, disableUpdates, disableEditing, xmlrpcEnabled int
 	err := database.GetDB().QueryRow(
-		"SELECT id, fastcgi_cache_enabled, fastcgi_cache_ttl, disable_wp_updates, disable_file_editing FROM websites WHERE domain = ? OR (char(10) || aliases || char(10)) LIKE ('%' || char(10) || ? || char(10) || '%')",
+		"SELECT id, fastcgi_cache_enabled, fastcgi_cache_ttl, disable_wp_updates, disable_file_editing, xmlrpc_enabled FROM websites WHERE domain = ? OR (char(10) || aliases || char(10)) LIKE ('%' || char(10) || ? || char(10) || '%')",
 		domain, domain,
-	).Scan(&siteID, &fcacheEnabled, &fcacheTTL, &disableUpdates, &disableEditing)
+	).Scan(&siteID, &fcacheEnabled, &fcacheTTL, &disableUpdates, &disableEditing, &xmlrpcEnabled)
 	if err != nil {
 		c.JSON(http.StatusNotFound, models.ErrorResponse("网站不存在"))
 		return
@@ -1064,6 +1064,7 @@ func (h *CacheHelperHandler) FindByDomain(c *gin.Context) {
 		"fastcgi_cache_ttl":     fcacheTTL,
 		"disable_wp_updates":    disableUpdates == 1,
 		"disable_file_editing":  disableEditing == 1,
+		"xmlrpc_enabled":        xmlrpcEnabled == 1,
 	}))
 }
 
