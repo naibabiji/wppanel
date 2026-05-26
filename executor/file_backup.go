@@ -17,6 +17,34 @@ func ExecuteFileBackup(siteID int, mode string, keepCount int) (string, error) {
 	if keepCount <= 0 {
 		keepCount = 3
 	}
+
+	// 文件备份排队锁：多个站点同时触发时依次执行，避免并发争抢磁盘/CPU
+	lockPath := "/tmp/wp-panel-file-backup.lock"
+	myPID := fmt.Sprintf("%d", os.Getpid())
+	acquired := false
+	for i := 0; i < 1440; i++ { // 最多等2小时（每5秒检查一次）
+		f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL, 0644)
+		if err == nil {
+			f.WriteString(myPID)
+			f.Close()
+			acquired = true
+			break
+		}
+		// 检查锁持有者是否还活着
+		if stale, _ := os.ReadFile(lockPath); len(stale) > 0 {
+			pid := strings.TrimSpace(string(stale))
+			if _, err := os.Stat("/proc/" + pid); os.IsNotExist(err) {
+				os.Remove(lockPath) // 死锁清理
+				continue
+			}
+		}
+		time.Sleep(5 * time.Second)
+	}
+	if !acquired {
+		return "", fmt.Errorf("等待备份锁超时（有其他备份任务未完成），请稍后重试")
+	}
+	defer os.Remove(lockPath)
+
 	db := database.GetDB()
 	var domain, webRoot string
 	err := db.QueryRow("SELECT domain, web_root FROM websites WHERE id = ?", siteID).Scan(&domain, &webRoot)
