@@ -238,10 +238,12 @@ function cronManager() {
             } catch(e) { showToast(e.message, 'error'); }
         },
         async runJob(job) {
+            job.running = true;
             try {
                 const r = await api('/cron/' + job.id + '/run', { method: 'POST' });
                 if (r.success) { await this.fetchList(); showToast(r.data?.message || '已执行', 'success'); }
-            } catch(e) { showToast(e.message, 'error'); }
+                else { job.running = false; }
+            } catch(e) { job.running = false; showToast(e.message, 'error'); }
         },
         async fetchCronLogs() {
             try {
