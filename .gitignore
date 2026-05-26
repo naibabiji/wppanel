@@ -22,5 +22,7 @@ Thumbs.db
 
 # Claude
 .claude/
+CLAUDE.md
+AGENTS.md
 /static/css/main.css
 setup.sh
