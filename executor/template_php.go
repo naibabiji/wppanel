@@ -112,6 +112,8 @@ server {
 
     add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
 
+    include /www/server/panel/nginx-custom/{{.Domain}}.pre.conf;
+
     root {{.WebRoot}};
     index index.php index.html index.htm;
 
@@ -122,6 +124,8 @@ server {
 	    {{else}}
 	    access_log off;
 	    {{end}}
+
+    include /www/server/panel/nginx-custom/{{.Domain}}.conf;
 
     location / {
         try_files $uri $uri/ /index.php?$args;

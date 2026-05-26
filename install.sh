@@ -512,16 +512,9 @@ else
         log_info "面板二进制下载完成"
     else
         log_warn "GitHub Releases 下载失败（网络问题或暂无发布版本）"
-        log_info "尝试备用方案：从源码编译（需要 Go 环境）..."
-        if command -v go &>/dev/null; then
-            log_info "检测到 Go 环境，尝试编译..."
-            go install github.com/naibabiji/wp-panel@latest 2>/dev/null && cp "$(go env GOPATH)/bin/wp-panel" "$BIN_PATH" && chmod +x "$BIN_PATH" && log_info "编译安装完成" || log_error "编译失败，请手动上传 wp-panel 到 /root 目录后重试"
-        else
-            log_error "下载失败且无 Go 环境。解决方案：
-  1. 检查服务器能否访问 GitHub
-  2. 或手动上传 wp-panel 到 /root 目录后重试
-  3. 或安装 Go 环境后重新运行本脚本"
-        fi
+        log_error "无法获取正式版二进制。解决方案：
+  1. 检查服务器能否访问 GitHub Releases
+  2. 或手动下载 release 附件 wp-panel 后，和 install.sh 放在同一目录重新运行"
     fi
 fi
 

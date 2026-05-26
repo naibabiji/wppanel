@@ -161,17 +161,24 @@ func (e *TemplateEngine) ApplyNginxConfig(configContent string, targetPath strin
 }
 
 func (e *TemplateEngine) ApplyPHPFPMPool(configContent string, targetPath string, logDir string) error {
-	tmpPath := "/tmp/php_fpm_" + fmt.Sprintf("%d", time.Now().UnixNano()) + ".conf"
-
-	if err := os.WriteFile(tmpPath, []byte(configContent), 0644); err != nil {
-		return fmt.Errorf("写入临时配置失败: %w", err)
-	}
-	defer os.Remove(tmpPath)
-
 	os.MkdirAll(logDir, 0755)
+
+	oldContent, oldErr := os.ReadFile(targetPath)
+	hadOld := oldErr == nil
 
 	if err := os.WriteFile(targetPath, []byte(configContent), 0644); err != nil {
 		return fmt.Errorf("写入PHP-FPM配置失败: %w", err)
+	}
+
+	testCmd := exec.Command("php-fpm8.3", "-t")
+	testOut, err := testCmd.CombinedOutput()
+	if err != nil {
+		if hadOld {
+			_ = os.WriteFile(targetPath, oldContent, 0644)
+		} else {
+			_ = os.Remove(targetPath)
+		}
+		return fmt.Errorf("PHP-FPM 配置检查失败，已回滚\n%s", string(testOut))
 	}
 
 	// 尝试 reload，失败则 restart，再失败则 start
@@ -181,6 +188,12 @@ func (e *TemplateEngine) ApplyPHPFPMPool(configContent string, targetPath string
 		if _, err := restartCmd.CombinedOutput(); err != nil {
 			startCmd := exec.Command("systemctl", "start", "php8.3-fpm")
 			if _, err := startCmd.CombinedOutput(); err != nil {
+				if hadOld {
+					_ = os.WriteFile(targetPath, oldContent, 0644)
+				} else {
+					_ = os.Remove(targetPath)
+				}
+				_ = exec.Command("systemctl", "restart", "php8.3-fpm").Run()
 				return fmt.Errorf("PHP-FPM 启动失败，请检查: systemctl status php8.3-fpm")
 			}
 		}
@@ -357,6 +370,8 @@ server {
 
     add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
 
+    include /www/server/panel/nginx-custom/{{.Domain}}.pre.conf;
+
     root {{.WebRoot}};
     index index.php index.html index.htm;
 
@@ -367,6 +382,8 @@ server {
 	    {{else}}
 	    access_log off;
 	    {{end}}
+
+    include /www/server/panel/nginx-custom/{{.Domain}}.conf;
 
     location / {
         try_files $uri $uri/ /index.php?$args;
@@ -470,4 +487,3 @@ php_flag[display_errors] = Off
 php_flag[log_errors] = On
 php_value[error_log] = /www/wwwlogs/{{.Domain}}/php-error.log
 `
-

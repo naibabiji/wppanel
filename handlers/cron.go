@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -71,6 +72,10 @@ func (h *CronHandler) Create(c *gin.Context) {
 	if taskType == "" {
 		taskType = "command"
 	}
+	if msg := validateCronInput(req.Name, req.CronExpression, req.Command, taskType, req.BackupMode, req.RunAsUser, req.SiteID); msg != "" {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse(msg))
+		return
+	}
 	notifyFail := 0
 	if req.NotifyFail {
 		notifyFail = 1
@@ -126,6 +131,10 @@ func (h *CronHandler) Update(c *gin.Context) {
 	taskType := req.TaskType
 	if taskType == "" {
 		taskType = "command"
+	}
+	if msg := validateCronInput(req.Name, req.CronExpression, req.Command, taskType, req.BackupMode, req.RunAsUser, req.SiteID); msg != "" {
+		c.JSON(http.StatusBadRequest, models.ErrorResponse(msg))
+		return
 	}
 	notifyFail := 0
 	if req.NotifyFail != nil && *req.NotifyFail {
@@ -362,4 +371,116 @@ func removeWPCronIfLast(siteID int) {
 		newLines = append(newLines, line)
 	}
 	os.WriteFile(configPath, []byte(strings.Join(newLines, "\n")), 0644)
+}
+
+var cronFieldRe = regexp.MustCompile(`^[0-9*/,\-]+$`)
+var cronUserRe = regexp.MustCompile(`^(wp|php)_[a-z0-9_]+$`)
+
+func validateCronInput(name, expr, command, taskType, backupMode, runAsUser string, siteID *int) string {
+	if hasLineBreak(name) || strings.Contains(name, `"`) {
+		return "任务名称不能包含换行或引号"
+	}
+	if !validCronExpression(expr) {
+		return "Cron 表达式格式不正确"
+	}
+	switch taskType {
+	case "command":
+		if strings.TrimSpace(command) == "" {
+			return "请输入要执行的命令"
+		}
+		if hasLineBreak(command) {
+			return "命令不能包含换行"
+		}
+	case "file_backup":
+		if siteID == nil || *siteID <= 0 {
+			return "请选择要备份的网站"
+		}
+		if backupMode != "" && backupMode != "full" && backupMode != "incremental" {
+			return "备份模式不正确"
+		}
+	case "wp_cron":
+		if siteID == nil || *siteID <= 0 {
+			return "请选择要调用 WP Cron 的网站"
+		}
+		if hasLineBreak(command) {
+			return "WP Cron 目标不能包含换行"
+		}
+	default:
+		return "任务类型不正确"
+	}
+	if runAsUser != "" {
+		if !cronUserRe.MatchString(runAsUser) {
+			return "运行用户不正确"
+		}
+		var count int
+		database.GetDB().QueryRow("SELECT COUNT(*) FROM websites WHERE system_user = ?", runAsUser).Scan(&count)
+		if count == 0 {
+			return "运行用户不属于任何站点"
+		}
+	}
+	return ""
+}
+
+func validCronExpression(expr string) bool {
+	if hasLineBreak(expr) {
+		return false
+	}
+	fields := strings.Fields(expr)
+	if len(fields) != 5 {
+		return false
+	}
+	ranges := [][2]int{{0, 59}, {0, 23}, {1, 31}, {1, 12}, {0, 7}}
+	for i, field := range fields {
+		if !validCronField(field, ranges[i][0], ranges[i][1]) {
+			return false
+		}
+	}
+	return true
+}
+
+func validCronField(field string, min, max int) bool {
+	if field == "" || !cronFieldRe.MatchString(field) || strings.Contains(field, "//") {
+		return false
+	}
+	for _, part := range strings.Split(field, ",") {
+		if part == "" {
+			return false
+		}
+		base := part
+		if strings.Contains(part, "/") {
+			parts := strings.Split(part, "/")
+			if len(parts) != 2 || parts[1] == "" {
+				return false
+			}
+			step, err := strconv.Atoi(parts[1])
+			if err != nil || step < 1 || step > max {
+				return false
+			}
+			base = parts[0]
+		}
+		if base == "*" {
+			continue
+		}
+		if strings.Contains(base, "-") {
+			parts := strings.Split(base, "-")
+			if len(parts) != 2 {
+				return false
+			}
+			start, err1 := strconv.Atoi(parts[0])
+			end, err2 := strconv.Atoi(parts[1])
+			if err1 != nil || err2 != nil || start < min || end > max || start > end {
+				return false
+			}
+			continue
+		}
+		value, err := strconv.Atoi(base)
+		if err != nil || value < min || value > max {
+			return false
+		}
+	}
+	return true
+}
+
+func hasLineBreak(s string) bool {
+	return strings.ContainsAny(s, "\r\n")
 }

@@ -4,7 +4,7 @@
 !/wp-panel-optimizer
 /bin/tailwindcss
 
-# 前端资源（由 bootstrap.sh 下载）
+# 前端资源（由发布流程下载）
 /static/js/alpine.min.js
 /static/js/chart.min.js
 

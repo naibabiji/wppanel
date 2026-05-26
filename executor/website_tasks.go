@@ -429,8 +429,6 @@ func executeUpdateDomains(task *Task) TaskResult {
 		newPHPPool := filepath.Join(cfg.Paths.PHPFPMPool, newDomain+".conf")
 		newCertDir := filepath.Join(cfg.Paths.Certificates, newDomain)
 		newEnabledLink := filepath.Join(cfg.Paths.NginxSitesEnabled, newDomain+".conf")
-		newSock := filepath.Join(cfg.Paths.PHPFPMSock, newDomain+".sock")
-
 		os.Remove(oldEnabledLink)
 		if _, err := os.Stat(newEnabledLink); err == nil {
 			os.Remove(newEnabledLink)
@@ -523,22 +521,10 @@ func executeUpdateDomains(task *Task) TaskResult {
 		}
 
 		aliasStr := strings.Join(newAliases, "\n")
-		allServerNames := buildServerNames(newDomain, newAliases)
+		site.Domain = newDomain
+		site.Aliases = aliasStr
 
-		nginxData := &NginxSiteData{
-			Domain:      newDomain,
-			Aliases:     newAliases,
-			ServerNames: allServerNames,
-			WebRoot:     newWebRoot,
-			LogDir:      newLogDir,
-			SystemUser:  site.SystemUser,
-			UseSSL:      site.SSLEnabled,
-			SSLCertPath: site.SSLCertPath,
-			SSLKeyPath:  site.SSLKeyPath,
-			PHPProxy:    "unix:" + newSock,
-			SiteType:    site.SiteType,
-			TemplateVer: site.TemplateVersion,
-		}
+		nginxData := nginxDataFromSite(site)
 
 		nginxConfig, err := engine.RenderNginxConfig(nginxData)
 		if err != nil {
@@ -573,24 +559,10 @@ func executeUpdateDomains(task *Task) TaskResult {
 	}
 
 	aliasStr := strings.Join(newAliases, "\n")
-	allServerNames := buildServerNames(newDomain, newAliases)
-	phpSockPath := filepath.Join(cfg.Paths.PHPFPMSock, newDomain+".sock")
+	site.Aliases = aliasStr
 
 	engine := NewTemplateEngine(cfg.Panel.BackupDir)
-	nginxData := &NginxSiteData{
-		Domain:      newDomain,
-		Aliases:     newAliases,
-		ServerNames: allServerNames,
-		WebRoot:     site.WebRoot,
-		LogDir:      site.LogDir,
-		SystemUser:  site.SystemUser,
-		UseSSL:      site.SSLEnabled,
-		SSLCertPath: site.SSLCertPath,
-		SSLKeyPath:  site.SSLKeyPath,
-		PHPProxy:    "unix:" + phpSockPath,
-		SiteType:    site.SiteType,
-		TemplateVer: site.TemplateVersion,
-	}
+	nginxData := nginxDataFromSite(site)
 
 	nginxConfig, err := engine.RenderNginxConfig(nginxData)
 	if err != nil {

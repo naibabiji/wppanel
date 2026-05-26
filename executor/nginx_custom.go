@@ -5,7 +5,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 
 	"github.com/naibabiji/wp-panel/config"
 	"github.com/naibabiji/wp-panel/database"
@@ -65,35 +64,9 @@ func executeSetAccessLogMode(task *Task) TaskResult {
 	site := payload.Site
 	cfg := config.AppConfig
 
-	aliasList := []string{}
-	if site.Aliases != "" {
-		for _, a := range strings.Split(site.Aliases, "\n") {
-			a = strings.TrimSpace(a)
-			if a != "" {
-				aliasList = append(aliasList, a)
-			}
-		}
-	}
-
-	allServerNames := buildServerNames(site.Domain, aliasList)
-	phpSockPath := filepath.Join(cfg.Paths.PHPFPMSock, site.Domain+".sock")
-
 	engine := NewTemplateEngine(cfg.Panel.BackupDir)
-	nginxData := &NginxSiteData{
-		Domain:        site.Domain,
-		Aliases:       aliasList,
-		ServerNames:   allServerNames,
-		WebRoot:       site.WebRoot,
-		LogDir:        site.LogDir,
-		SystemUser:    site.SystemUser,
-		UseSSL:        site.SSLEnabled,
-		SiteType:      site.SiteType,
-		SSLCertPath:   site.SSLCertPath,
-		SSLKeyPath:    site.SSLKeyPath,
-		PHPProxy:      "unix:" + phpSockPath,
-		TemplateVer:   site.TemplateVersion,
-		AccessLogMode: payload.Mode,
-	}
+	nginxData := nginxDataFromSite(site)
+	nginxData.AccessLogMode = payload.Mode
 
 	nginxConfig, err := engine.RenderNginxConfig(nginxData)
 	if err != nil {

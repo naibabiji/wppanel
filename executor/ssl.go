@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -106,34 +107,11 @@ func executeRemoveSSL(task *Task) TaskResult {
 	certDir := filepath.Join(cfg.Paths.Certificates, site.Domain)
 	os.RemoveAll(certDir)
 
-	aliasList := []string{}
-	if site.Aliases != "" {
-		for _, a := range strings.Split(site.Aliases, "\n") {
-			a = strings.TrimSpace(a)
-			if a != "" {
-				aliasList = append(aliasList, a)
-			}
-		}
-	}
-
-	allServerNames := buildServerNames(site.Domain, aliasList)
-	phpSockPath := filepath.Join(cfg.Paths.PHPFPMSock, site.Domain+".sock")
-
 	engine := NewTemplateEngine(cfg.Panel.BackupDir)
-	nginxData := &NginxSiteData{
-		Domain:      site.Domain,
-		Aliases:     aliasList,
-		ServerNames: allServerNames,
-		WebRoot:     site.WebRoot,
-		LogDir:      site.LogDir,
-		SystemUser:  site.SystemUser,
-		UseSSL:      false,
-		SiteType:    site.SiteType,
-		SSLCertPath: "",
-		SSLKeyPath:  "",
-		PHPProxy:    "unix:" + phpSockPath,
-		TemplateVer: "v1.0",
-	}
+	nginxData := nginxDataFromSite(site)
+	nginxData.UseSSL = false
+	nginxData.SSLCertPath = ""
+	nginxData.SSLKeyPath = ""
 
 	nginxConfig, err := engine.RenderNginxConfig(nginxData)
 	if err != nil {
@@ -276,34 +254,11 @@ func (w *webrootProvider) CleanUp(domain, token, keyAuth string) error {
 func applySSLToSite(site *models.Website, certPath, keyPath string, expiry time.Time) error {
 	cfg := config.AppConfig
 
-	aliasList := []string{}
-	if site.Aliases != "" {
-		for _, a := range strings.Split(site.Aliases, "\n") {
-			a = strings.TrimSpace(a)
-			if a != "" {
-				aliasList = append(aliasList, a)
-			}
-		}
-	}
-
-	allServerNames := buildServerNames(site.Domain, aliasList)
-	phpSockPath := filepath.Join(cfg.Paths.PHPFPMSock, site.Domain+".sock")
-
 	engine := NewTemplateEngine(cfg.Panel.BackupDir)
-	nginxData := &NginxSiteData{
-		Domain:      site.Domain,
-		Aliases:     aliasList,
-		ServerNames: allServerNames,
-		WebRoot:     site.WebRoot,
-		LogDir:      site.LogDir,
-		SystemUser:  site.SystemUser,
-		UseSSL:      true,
-		SiteType:    site.SiteType,
-		SSLCertPath: certPath,
-		SSLKeyPath:  keyPath,
-		PHPProxy:    "unix:" + phpSockPath,
-		TemplateVer: "v1.0",
-	}
+	nginxData := nginxDataFromSite(site)
+	nginxData.UseSSL = true
+	nginxData.SSLCertPath = certPath
+	nginxData.SSLKeyPath = keyPath
 
 	nginxConfig, err := engine.RenderNginxConfig(nginxData)
 	if err != nil {
@@ -454,6 +409,10 @@ func executeRenewSSL(task *Task) TaskResult {
 			newExpiry, w.ID)
 
 		renewed = append(renewed, w.Domain)
+	}
+
+	if len(renewed) > 0 {
+		exec.Command("nginx", "-s", "reload").Run()
 	}
 
 	msg := fmt.Sprintf("续期完成。成功: %d", len(renewed))

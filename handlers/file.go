@@ -40,12 +40,32 @@ func fileBasePath(siteID int) (string, error) {
 }
 
 func isPathWithin(basePath, targetPath string) bool {
-	base := filepath.Clean(basePath)
-	target := filepath.Clean(targetPath)
+	base, err := filepath.EvalSymlinks(filepath.Clean(basePath))
+	if err != nil {
+		return false
+	}
+	target, err := resolvePathForAccess(targetPath)
+	if err != nil {
+		return false
+	}
+	base = filepath.Clean(base)
+	target = filepath.Clean(target)
 	if target == base {
 		return true
 	}
 	return strings.HasPrefix(target, base+string(filepath.Separator))
+}
+
+func resolvePathForAccess(path string) (string, error) {
+	cleanPath := filepath.Clean(path)
+	if resolved, err := filepath.EvalSymlinks(cleanPath); err == nil {
+		return resolved, nil
+	}
+	parent, err := filepath.EvalSymlinks(filepath.Dir(cleanPath))
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(parent, filepath.Base(cleanPath)), nil
 }
 
 func (h *FileHandler) List(c *gin.Context) {
@@ -358,6 +378,9 @@ func (h *FileHandler) BatchCompress(c *gin.Context) {
 				if err != nil {
 					return nil
 				}
+				if !isPathWithin(basePath, path) {
+					return nil
+				}
 				rel, _ := filepath.Rel(basePath, path)
 				rel = filepath.ToSlash(rel)
 				header, err := zip.FileInfoHeader(fi)
@@ -452,6 +475,9 @@ func (h *FileHandler) Compress(c *gin.Context) {
 	if info.IsDir() {
 		filepath.Walk(fullPath, func(path string, fi os.FileInfo, err error) error {
 			if err != nil {
+				return nil
+			}
+			if !isPathWithin(basePath, path) {
 				return nil
 			}
 			rel, _ := filepath.Rel(baseDir, path)
@@ -669,13 +695,16 @@ func (h *FileHandler) Copy(c *gin.Context) {
 		if !isPathWithin(basePath, src) || !isPathWithin(basePath, dest) {
 			continue
 		}
-		copyFileOrDir(src, dest)
+		copyFileOrDir(basePath, src, dest)
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"message": fmt.Sprintf("已复制 %d 个项目", len(req.Names))}))
 }
 
-func copyFileOrDir(src, dest string) error {
+func copyFileOrDir(basePath, src, dest string) error {
+	if !isPathWithin(basePath, src) || !isPathWithin(basePath, dest) {
+		return fmt.Errorf("path outside base")
+	}
 	info, err := os.Stat(src)
 	if err != nil {
 		return err
@@ -687,7 +716,7 @@ func copyFileOrDir(src, dest string) error {
 			return err
 		}
 		for _, e := range entries {
-			copyFileOrDir(filepath.Join(src, e.Name()), filepath.Join(dest, e.Name()))
+			copyFileOrDir(basePath, filepath.Join(src, e.Name()), filepath.Join(dest, e.Name()))
 		}
 		return nil
 	}
@@ -770,6 +799,9 @@ func (h *FileHandler) FixPermissions(c *gin.Context) {
 		if err != nil {
 			return nil
 		}
+		if !isPathWithin(webRoot, path) {
+			return nil
+		}
 		if info.IsDir() {
 			os.Chmod(path, 0755)
 			dirCount++
@@ -793,5 +825,3 @@ func (h *FileHandler) FixPermissions(c *gin.Context) {
 		"file_count": fileCount,
 	}))
 }
-
-
