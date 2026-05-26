@@ -34,9 +34,23 @@ class WP_Panel_Optimizer {
 
     private static function load_config() {
         $domain = wp_parse_url(home_url(), PHP_URL_HOST);
-        $file = '/var/wp-panel/site-secrets/' . $domain . '/wp-panel-config.json';
-        if (!file_exists($file)) return null;
-        return json_decode(file_get_contents($file), true);
+        if (!$domain) return null;
+
+        $base = '/var/wp-panel/site-secrets/';
+        $candidates = array($domain);
+        if (strpos($domain, 'www.') === 0) {
+            $candidates[] = substr($domain, 4);
+        } else {
+            $candidates[] = 'www.' . $domain;
+        }
+
+        foreach ($candidates as $d) {
+            $file = $base . $d . '/wp-panel-config.json';
+            if (file_exists($file)) {
+                return json_decode(file_get_contents($file), true);
+            }
+        }
+        return null;
     }
 
     private static function get_panel_url() {
