@@ -164,7 +164,7 @@ func checkCPU() (bool, string) {
 	db.QueryRow("SELECT cpu_percent, recorded_at FROM monitoring_metrics ORDER BY id DESC LIMIT 1").Scan(&cpu, &ts)
 	v, _ := strconv.ParseFloat(cpu, 64)
 	if v > 80 {
-		return true, fmt.Sprintf("CPU 使用率 %.1f%%（阈值 80%%），于 %s", v, ts)
+		return true, fmt.Sprintf("CPU 使用率 %.1f%%（阈值 80%%），于 %s", v, toLocalTime(ts))
 	}
 	return false, ""
 }
@@ -175,9 +175,17 @@ func checkMemory() (bool, string) {
 	db.QueryRow("SELECT memory_percent, recorded_at FROM monitoring_metrics ORDER BY id DESC LIMIT 1").Scan(&mem, &ts)
 	v, _ := strconv.ParseFloat(mem, 64)
 	if v > 90 {
-		return true, fmt.Sprintf("内存使用率 %.1f%%（阈值 90%%），于 %s", v, ts)
+		return true, fmt.Sprintf("内存使用率 %.1f%%（阈值 90%%），于 %s", v, toLocalTime(ts))
 	}
 	return false, ""
+}
+
+func toLocalTime(dbTime string) string {
+	t, err := time.Parse("2006-01-02 15:04:05", dbTime)
+	if err != nil {
+		return dbTime
+	}
+	return t.Local().Format("2006-01-02 15:04:05")
 }
 
 func checkDisk() (bool, string) {
