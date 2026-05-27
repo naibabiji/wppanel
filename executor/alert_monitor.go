@@ -148,7 +148,7 @@ func alertLabel(key string) string {
 	case "alert_cpu":
 		return "CPU 高负载"
 	case "alert_memory":
-		return "内存使用过高"
+		return "可用内存不足"
 	case "alert_disk":
 		return "磁盘空间不足"
 	case "alert_service":
@@ -198,7 +198,7 @@ func checkMemory() (bool, string) {
 	db.QueryRow("SELECT memory_percent, recorded_at FROM monitoring_metrics ORDER BY id DESC LIMIT 1").Scan(&mem, &ts)
 	v, _ := strconv.ParseFloat(mem, 64)
 	if v > 90 {
-		return true, fmt.Sprintf("内存使用率 %.1f%%（阈值 90%%），于 %s", v, toLocalTime(ts))
+		return true, fmt.Sprintf("可用内存低于 10%%（当前使用率 %.1f%%），于 %s", v, toLocalTime(ts))
 	}
 	return false, ""
 }

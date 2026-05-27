@@ -82,7 +82,7 @@
                 </label>
                 <label class="flex items-center space-x-2 text-sm text-gray-300 cursor-pointer mb-3">
                     <input type="checkbox" x-model="rules.alert_memory" @change="save">
-                    <span>内存 > 90% 持续 5 分钟</span>
+                    <span>可用内存 < 10% 持续 5 分钟</span>
                 </label>
                 <label class="flex items-center space-x-2 text-sm text-gray-300 cursor-pointer mb-3">
                     <input type="checkbox" x-model="rules.alert_disk" @change="save">
@@ -268,7 +268,7 @@ function alertManager() {
             } catch(e) {}
         },
         typeLabel(t) {
-            const m = { alert_cpu: 'CPU高负载', alert_memory: '内存过高', alert_disk: '磁盘不足', alert_service: '服务异常', alert_ssl: 'SSL到期', alert_backup: '备份失败', alert_remote_backup: '远程备份失败', alert_cron_fail: '计划任务失败', alert_website_expiry: '网站到期', alert_site: '网站不可用' };
+            const m = { alert_cpu: 'CPU高负载', alert_memory: '可用内存不足', alert_disk: '磁盘不足', alert_service: '服务异常', alert_ssl: 'SSL到期', alert_backup: '备份失败', alert_remote_backup: '远程备份失败', alert_cron_fail: '计划任务失败', alert_website_expiry: '网站到期', alert_site: '网站不可用' };
             return m[t] || t;
         }
     }

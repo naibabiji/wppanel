@@ -200,7 +200,7 @@ var migrations = []string{
 		('smtp_pass',                '',         '发件邮箱密码/授权码'),
 		('admin_email',              '',         '管理员通知邮箱'),
 		('alert_cpu',                'true',     'CPU > 80% 持续 5 分钟告警'),
-		('alert_memory',             'true',     '内存 > 90% 持续 5 分钟告警'),
+		('alert_memory',             'true',     '可用内存 < 10% 持续 5 分钟告警'),
 		('alert_disk',               'true',     '磁盘 > 90% 告警'),
 		('alert_service',            'true',     '服务进程异常重启告警'),
 		('alert_ssl',                'true',     'SSL 证书到期告警'),
