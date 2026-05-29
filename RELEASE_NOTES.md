@@ -1,5 +1,8 @@
 ## v1.2.0-rc3
 
+### 新增功能
+- **系统安全更新提醒**：设置页展示待更新系统包列表（含 Debian 官方查询链接），支持一键 apt upgrade，仪表盘红色徽章提示，告警通知（每日最多一次）
+
 ### 安全防护
 - **每站点独立 Unix 用户组隔离**：建站用户组从 systemUser:www-data 改为 systemUser:systemUser 独立组，PHP-FPM pool group 同改为站点独立组。wp-config.php 权限 644→600，密钥目录 750→700。已有站点通过数据库升级自动加固。
 
