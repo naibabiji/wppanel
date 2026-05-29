@@ -17,16 +17,18 @@ func FixWPConfigCredentials(webRoot, dbName, dbUser string) error {
 	text := string(content)
 
 	reName := regexp.MustCompile(`define\(\s*'DB_NAME'\s*,\s*'[^']*'\s*\)`)
-	text = reName.ReplaceAllString(text, fmt.Sprintf("define('DB_NAME', '%s')", dbName))
-
-	reUser := regexp.MustCompile(`define\(\s*'DB_USER'\s*,\s*'[^']*'\s*\)`)
-	text = reUser.ReplaceAllString(text, fmt.Sprintf("define('DB_USER', '%s')", dbUser))
-
-	if text == string(content) {
-		return fmt.Errorf("未找到 DB_NAME 或 DB_USER 定义，wp-config.php 可能格式异常")
+	nameUpdated := reName.ReplaceAllString(text, fmt.Sprintf("define('DB_NAME', '%s')", dbName))
+	if nameUpdated == text {
+		return fmt.Errorf("未找到 DB_NAME 定义，wp-config.php 可能格式异常")
 	}
 
-	if err := os.WriteFile(configPath, []byte(text), 0644); err != nil {
+	reUser := regexp.MustCompile(`define\(\s*'DB_USER'\s*,\s*'[^']*'\s*\)`)
+	userUpdated := reUser.ReplaceAllString(nameUpdated, fmt.Sprintf("define('DB_USER', '%s')", dbUser))
+	if userUpdated == nameUpdated {
+		return fmt.Errorf("未找到 DB_USER 定义，wp-config.php 可能格式异常")
+	}
+
+	if err := os.WriteFile(configPath, []byte(userUpdated), 0644); err != nil {
 		return fmt.Errorf("写入 wp-config.php 失败: %w", err)
 	}
 	return nil
