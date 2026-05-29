@@ -42,7 +42,7 @@ function api(path, options = {}) {
             return data;
         })
         .catch(err => {
-            if (err.message !== 'Unauthorized') {
+            if (err.message !== 'Unauthorized' && !err.conflicts) {
                 console.error('Fetch failed:', err.message, 'URL:', url);
                 showToast(err.message, 'error');
             }
