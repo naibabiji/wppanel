@@ -90,6 +90,15 @@ var upgrades = []Upgrade{
 			`INSERT OR IGNORE INTO security_settings (skey, svalue, description) VALUES ('alert_panel_update', 'true', '面板新版本告警')`,
 		},
 	},
+	{
+		Version:     "1.0.7",
+		Description: "新增 WP_DEBUG / 文章修订 / 内存限制 优化项",
+		SQL: []string{
+			`ALTER TABLE websites ADD COLUMN wp_debug_enabled INTEGER NOT NULL DEFAULT 0`,
+			`ALTER TABLE websites ADD COLUMN wp_post_revisions INTEGER NOT NULL DEFAULT -1`,
+			`ALTER TABLE websites ADD COLUMN wp_memory_limit TEXT NOT NULL DEFAULT ''`,
+		},
+	},
 }
 
 // LatestVersion 返回 upgrades 列表中的最新版本号。

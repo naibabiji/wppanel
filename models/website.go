@@ -37,9 +37,12 @@ type Website struct {
 	FCacheKey          string        `json:"fastcgi_cache_key"`
 	MonitoringEnabled  bool          `json:"monitoring_enabled"`
 	MonitoringInterval int           `json:"monitoring_interval"`
-	DisableWPUpdates   bool          `json:"disable_wp_updates"`
-	DisableFileEditing bool          `json:"disable_file_editing"`
-	XMLRPCEnabled      bool          `json:"xmlrpc_enabled"`
+	DisableWPUpdates   bool   `json:"disable_wp_updates"`
+	DisableFileEditing bool   `json:"disable_file_editing"`
+	XMLRPCEnabled      bool   `json:"xmlrpc_enabled"`
+	WPDebugEnabled     bool   `json:"wp_debug_enabled"`
+	WPPostRevisions    int    `json:"wp_post_revisions"`
+	WPMemoryLimit      string `json:"wp_memory_limit"`
 	LogRetentionDays   int           `json:"log_retention_days"`
 	ExpiresAt          *time.Time    `json:"expires_at"`
 	CreatedAt          time.Time     `json:"created_at"`

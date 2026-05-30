@@ -2,8 +2,8 @@
 /**
  * Plugin Name: WP Panel Optimizer
  * Plugin URI:  https://github.com/naibabiji/wp-panel
- * Description: 与 WP Panel 面板配合，管理 FastCGI 缓存、禁止检测更新、文件编辑等优化项。发布/更新文章自动清除缓存。
- * Version:     1.0.1
+ * Description: 与 WP Panel 面板配合，管理 FastCGI 缓存、调试模式、文章修订、内存限制等优化项。发布/更新文章自动清除缓存。
+ * Version:     1.1.0
  * Author:      WP Panel
  * Author URI:  https://blog.naibabiji.com
  * License:     GPL-2.0+
@@ -20,11 +20,14 @@ function wpp_optimizer_uninstall() {
     delete_option('wpp_optimizer_verified');
     delete_option('wpp_optimizer_log');
     delete_option('wpp_optimizer_xmlrpc_enabled');
+    delete_option('wpp_optimizer_wp_debug');
+    delete_option('wpp_optimizer_post_revisions');
+    delete_option('wpp_optimizer_memory_limit');
 }
 
 class WP_Panel_Optimizer {
 
-    const VERSION = '1.0.1';
+    const VERSION = '1.1.0';
 
     const OPTION_FCACHE_ENABLED = 'wpp_optimizer_fcache_enabled';
     const OPTION_FCACHE_TTL     = 'wpp_optimizer_fcache_ttl';
@@ -33,6 +36,9 @@ class WP_Panel_Optimizer {
     const OPTION_VERIFIED       = 'wpp_optimizer_verified';
     const OPTION_LOG            = 'wpp_optimizer_log';
     const OPTION_XMLRPC_ENABLED = 'wpp_optimizer_xmlrpc_enabled';
+    const OPTION_WP_DEBUG       = 'wpp_optimizer_wp_debug';
+    const OPTION_POST_REVISIONS = 'wpp_optimizer_post_revisions';
+    const OPTION_MEMORY_LIMIT   = 'wpp_optimizer_memory_limit';
 
     private static function load_config() {
         $domain = wp_parse_url(home_url(), PHP_URL_HOST);
@@ -137,6 +143,9 @@ class WP_Panel_Optimizer {
             update_option(self::OPTION_NO_UPDATES, !empty($panelState['disable_wp_updates']) ? '1' : '0');
             update_option(self::OPTION_NO_FILE_EDIT, !empty($panelState['disable_file_editing']) ? '1' : '0');
             update_option(self::OPTION_XMLRPC_ENABLED, !empty($panelState['xmlrpc_enabled']) ? '1' : '0');
+            update_option(self::OPTION_WP_DEBUG, !empty($panelState['wp_debug_enabled']) ? '1' : '0');
+            update_option(self::OPTION_POST_REVISIONS, $panelState['wp_post_revisions'] ?? -1);
+            update_option(self::OPTION_MEMORY_LIMIT, $panelState['wp_memory_limit'] ?? '');
         }
 
         $notice = '';
@@ -146,6 +155,9 @@ class WP_Panel_Optimizer {
             $fcacheTTL      = isset($_POST['fcache_ttl']) ? intval($_POST['fcache_ttl']) : 300;
             $noUpdates      = !empty($_POST['no_updates'])      ? true : false;
             $noFileEdit     = !empty($_POST['no_file_edit'])    ? true : false;
+            $wpDebug        = !empty($_POST['wp_debug'])        ? true : false;
+            $postRevisions  = isset($_POST['post_revisions']) ? intval($_POST['post_revisions']) : -1;
+            $memoryLimit    = isset($_POST['memory_limit']) ? sanitize_text_field($_POST['memory_limit']) : '';
 
             if ($fcacheTTL < 10)  $fcacheTTL = 300;
             if ($fcacheTTL > 86400) $fcacheTTL = 86400;
@@ -154,8 +166,11 @@ class WP_Panel_Optimizer {
             update_option(self::OPTION_FCACHE_TTL, $fcacheTTL);
             update_option(self::OPTION_NO_UPDATES, $noUpdates ? '1' : '0');
             update_option(self::OPTION_NO_FILE_EDIT, $noFileEdit ? '1' : '0');
+            update_option(self::OPTION_WP_DEBUG, $wpDebug ? '1' : '0');
+            update_option(self::OPTION_POST_REVISIONS, $postRevisions);
+            update_option(self::OPTION_MEMORY_LIMIT, $memoryLimit);
 
-            self::push_optimizer_settings($fcacheEnabled, $fcacheTTL, $noUpdates, $noFileEdit);
+            self::push_optimizer_settings($fcacheEnabled, $fcacheTTL, $noUpdates, $noFileEdit, $wpDebug, $postRevisions, $memoryLimit);
             $notice = '<div class="notice notice-success"><p>设置已保存，已同步到面板。</p></div>';
         }
 
@@ -163,6 +178,9 @@ class WP_Panel_Optimizer {
         $fcacheTTL      = get_option(self::OPTION_FCACHE_TTL, '300');
         $noUpdates      = get_option(self::OPTION_NO_UPDATES, '0') === '1';
         $noFileEdit     = get_option(self::OPTION_NO_FILE_EDIT, '0') === '1';
+        $wpDebug        = get_option(self::OPTION_WP_DEBUG, '0') === '1';
+        $postRevisions  = intval(get_option(self::OPTION_POST_REVISIONS, '-1'));
+        $memoryLimit    = get_option(self::OPTION_MEMORY_LIMIT, '');
         $log            = get_option(self::OPTION_LOG, []);
         ?>
         <div class="wrap">
@@ -212,6 +230,27 @@ class WP_Panel_Optimizer {
                         <td>
                             <label><input id="wpp-no-file-edit" name="no_file_edit" type="checkbox" value="1" <?php checked($noFileEdit); ?>> 禁止在 WordPress 后台编辑主题和插件文件</label>
                             <p class="description">面板将写入 <code>DISALLOW_FILE_EDIT</code> 常量到 wp-config.php。</p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th><label for="wpp-wp-debug">启用调试模式</label></th>
+                        <td>
+                            <label><input id="wpp-wp-debug" name="wp_debug" type="checkbox" value="1" <?php checked($wpDebug); ?>> 开启 <code>WP_DEBUG</code></label>
+                            <p class="description">开启后 PHP 错误和警告将写入 <code>wp-content/debug.log</code>，并开启 <code>WP_DEBUG_LOG</code>、关闭 <code>WP_DEBUG_DISPLAY</code>（错误不显示在页面，仅记录日志）。<br>用于排查网站白屏、500 错误等问题，正常使用时请关闭以免日志文件持续增长。</p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th><label for="wpp-post-revisions">文章修订版本数</label></th>
+                        <td>
+                            <input id="wpp-post-revisions" name="post_revisions" type="number" class="small-text" value="<?php echo esc_attr($postRevisions >= 0 ? $postRevisions : ''); ?>" min="-1" placeholder="默认">
+                            <p class="description">留空 = WordPress 默认（无限制），<strong>0 = 完全不保留修订</strong>，设置为 3~5 可有效减少数据库占用。<br>每保存一次文章就会生成一个修订版本，长期不清理会占用大量数据库空间。</p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th><label for="wpp-memory-limit">PHP 内存限制</label></th>
+                        <td>
+                            <input id="wpp-memory-limit" name="memory_limit" type="text" class="regular-text" value="<?php echo esc_attr($memoryLimit); ?>" placeholder="默认 40M">
+                            <p class="description">设置 <code>WP_MEMORY_LIMIT</code>，如 <code>128M</code>、<code>256M</code>。留空使用 WordPress 默认值（40M）。<br>遇到"Allowed memory size exhausted"错误、后台白屏时可适当调高。注意不要超过服务器总内存。</p>
                         </td>
                     </tr>
                     <?php $xmlrpcEnabled = get_option('wpp_optimizer_xmlrpc_enabled', '0') === '1'; ?>
@@ -378,7 +417,7 @@ class WP_Panel_Optimizer {
         return !empty($data['success']) ? ($data['data'] ?? null) : null;
     }
 
-    private static function push_optimizer_settings($fcacheEnabled, $fcacheTTL, $noUpdates, $noFileEdit) {
+    private static function push_optimizer_settings($fcacheEnabled, $fcacheTTL, $noUpdates, $noFileEdit, $wpDebug = false, $postRevisions = -1, $memoryLimit = '') {
         $domain = wp_parse_url(home_url(), PHP_URL_HOST);
         self::api_request('PUT', '/api/sites/optimizer-settings', [
             'domain'               => $domain,
@@ -386,6 +425,9 @@ class WP_Panel_Optimizer {
             'ttl'                  => $fcacheTTL,
             'disable_wp_updates'   => $noUpdates,
             'disable_file_editing' => $noFileEdit,
+            'wp_debug_enabled'     => $wpDebug,
+            'wp_post_revisions'    => $postRevisions,
+            'wp_memory_limit'      => $memoryLimit,
         ]);
     }
 

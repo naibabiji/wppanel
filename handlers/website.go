@@ -27,7 +27,8 @@ const websiteCols = `id, name, domain, aliases, status, system_user, web_root, l
 	ssl_cert_path, ssl_key_path, ssl_expires_at, template_version, access_log_mode,
 	fastcgi_cache_enabled, fastcgi_cache_ttl, fastcgi_cache_key,
 	monitoring_enabled, monitoring_interval, disable_wp_updates, disable_file_editing,
-		xmlrpc_enabled, log_retention_days, expires_at, created_at, updated_at`
+		xmlrpc_enabled, wp_debug_enabled, wp_post_revisions, wp_memory_limit,
+		log_retention_days, expires_at, created_at, updated_at`
 
 // scanWebsite scans the canonical columns into a Website model.
 // scanner is either row.Scan (for QueryRow) or rows.Scan (for Rows).
@@ -37,6 +38,9 @@ func scanWebsite(scanner func(dest ...interface{}) error) (*models.Website, erro
 	var sslEnabled, fCacheEnabled, monitoringEnabled int
 	var monitoringInterval int
 	var disableWPUpdates, disableFileEditing, xmlrpcEnabled int
+	var wpDebugEnabled int
+	var wpPostRevisions int
+	var wpMemoryLimit string
 	var logRetentionDays int
 
 	err := scanner(
@@ -46,7 +50,8 @@ func scanWebsite(scanner func(dest ...interface{}) error) (*models.Website, erro
 		&w.SSLExpiresAt, &w.TemplateVersion, &w.AccessLogMode,
 		&fCacheEnabled, &w.FCacheTTL, &w.FCacheKey,
 		&monitoringEnabled, &monitoringInterval, &disableWPUpdates, &disableFileEditing,
-		&xmlrpcEnabled, &logRetentionDays, &w.ExpiresAt,
+		&xmlrpcEnabled, &wpDebugEnabled, &wpPostRevisions, &wpMemoryLimit,
+		&logRetentionDays, &w.ExpiresAt,
 		&w.CreatedAt, &w.UpdatedAt,
 	)
 	if err != nil {
@@ -62,6 +67,9 @@ func scanWebsite(scanner func(dest ...interface{}) error) (*models.Website, erro
 	w.DisableWPUpdates = disableWPUpdates == 1
 	w.DisableFileEditing = disableFileEditing == 1
 	w.XMLRPCEnabled = xmlrpcEnabled == 1
+	w.WPDebugEnabled = wpDebugEnabled == 1
+	w.WPPostRevisions = wpPostRevisions
+	w.WPMemoryLimit = wpMemoryLimit
 	w.LogRetentionDays = logRetentionDays
 	return &w, nil
 }
@@ -842,8 +850,11 @@ func (h *WebsiteHandler) SaveWPOptimizations(c *gin.Context) {
 		FCacheEnabled      bool `json:"fcache_enabled"`
 		FCacheTTL          int  `json:"fcache_ttl"`
 		DisableWPUpdates   bool `json:"disable_wp_updates"`
-		DisableFileEditing bool `json:"disable_file_editing"`
-		XMLRPCEnabled      bool `json:"xmlrpc_enabled"`
+		DisableFileEditing bool   `json:"disable_file_editing"`
+		XMLRPCEnabled      bool   `json:"xmlrpc_enabled"`
+		WPDebugEnabled     bool   `json:"wp_debug_enabled"`
+		WPPostRevisions    int    `json:"wp_post_revisions"`
+		WPMemoryLimit      string `json:"wp_memory_limit"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse("参数错误"))
@@ -880,17 +891,31 @@ func (h *WebsiteHandler) SaveWPOptimizations(c *gin.Context) {
 		xmlrpcEnabled = 1
 	}
 
+	wpDebug := 0
+	if req.WPDebugEnabled {
+		wpDebug = 1
+	}
+
 	db.Exec(`UPDATE websites SET
 		fastcgi_cache_enabled = ?, fastcgi_cache_ttl = ?,
-		disable_wp_updates = ?, disable_file_editing = ?, xmlrpc_enabled = ?
+		disable_wp_updates = ?, disable_file_editing = ?, xmlrpc_enabled = ?,
+		wp_debug_enabled = ?, wp_post_revisions = ?, wp_memory_limit = ?
 		WHERE id = ?`,
-		fcEnabled, req.FCacheTTL, disableUpdates, disableEditing, xmlrpcEnabled, id)
+		fcEnabled, req.FCacheTTL, disableUpdates, disableEditing, xmlrpcEnabled,
+		wpDebug, req.WPPostRevisions, req.WPMemoryLimit, id)
 
 	// 更新 wp-config.php
 	var webRoot string
 	db.QueryRow("SELECT web_root FROM websites WHERE id = ?", id).Scan(&webRoot)
 	if webRoot != "" {
-		if err := executor.ApplyWPOptimizations(webRoot, req.DisableWPUpdates, req.DisableFileEditing); err != nil {
+		opts := executor.WPOptimizations{
+				DisableUpdates:    req.DisableWPUpdates,
+				DisableFileEditing: req.DisableFileEditing,
+				WPDebug:           req.WPDebugEnabled,
+				WPPostRevisions:   req.WPPostRevisions,
+				WPMemoryLimit:     req.WPMemoryLimit,
+			}
+			if err := executor.ApplyWPOptimizations(webRoot, opts); err != nil {
 			log.Printf("ApplyWPOptimizations 失败 (site %d): %v", id, err)
 		}
 	}
@@ -1087,11 +1112,12 @@ func (h *CacheHelperHandler) FindByDomain(c *gin.Context) {
 		return
 	}
 
-	var siteID, fcacheEnabled, fcacheTTL, disableUpdates, disableEditing, xmlrpcEnabled int
+	var siteID, fcacheEnabled, fcacheTTL, disableUpdates, disableEditing, xmlrpcEnabled, wpDebugEnabled, wpPostRevisions int
+		var wpMemoryLimit string
 	err := database.GetDB().QueryRow(
-		"SELECT id, fastcgi_cache_enabled, fastcgi_cache_ttl, disable_wp_updates, disable_file_editing, xmlrpc_enabled FROM websites WHERE domain = ? OR (char(10) || aliases || char(10)) LIKE ('%' || char(10) || ? || char(10) || '%')",
+		"SELECT id, fastcgi_cache_enabled, fastcgi_cache_ttl, disable_wp_updates, disable_file_editing, xmlrpc_enabled, wp_debug_enabled, wp_post_revisions, wp_memory_limit FROM websites WHERE domain = ? OR (char(10) || aliases || char(10)) LIKE ('%' || char(10) || ? || char(10) || '%')",
 		domain, domain,
-	).Scan(&siteID, &fcacheEnabled, &fcacheTTL, &disableUpdates, &disableEditing, &xmlrpcEnabled)
+	).Scan(&siteID, &fcacheEnabled, &fcacheTTL, &disableUpdates, &disableEditing, &xmlrpcEnabled, &wpDebugEnabled, &wpPostRevisions, &wpMemoryLimit)
 	if err != nil {
 		c.JSON(http.StatusNotFound, models.ErrorResponse("网站不存在"))
 		return
@@ -1105,6 +1131,9 @@ func (h *CacheHelperHandler) FindByDomain(c *gin.Context) {
 		"disable_wp_updates":    disableUpdates == 1,
 		"disable_file_editing":  disableEditing == 1,
 		"xmlrpc_enabled":        xmlrpcEnabled == 1,
+		"wp_debug_enabled":     wpDebugEnabled == 1,
+		"wp_post_revisions":    wpPostRevisions,
+		"wp_memory_limit":      wpMemoryLimit,
 	}))
 }
 
@@ -1115,6 +1144,9 @@ func (h *CacheHelperHandler) UpdateOptimizerSettings(c *gin.Context) {
 		TTL                int    `json:"ttl"`
 		DisableWPUpdates   bool   `json:"disable_wp_updates"`
 		DisableFileEditing bool   `json:"disable_file_editing"`
+		WPDebugEnabled     bool   `json:"wp_debug_enabled"`
+		WPPostRevisions    int    `json:"wp_post_revisions"`
+		WPMemoryLimit      string `json:"wp_memory_limit"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil || req.Domain == "" {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse("参数错误"))
@@ -1150,17 +1182,30 @@ func (h *CacheHelperHandler) UpdateOptimizerSettings(c *gin.Context) {
 		disableEditing = 1
 	}
 
+	wpDebug2 := 0
+	if req.WPDebugEnabled {
+		wpDebug2 = 1
+	}
+
 	db.Exec(`UPDATE websites SET
 		fastcgi_cache_enabled = ?, fastcgi_cache_ttl = ?,
-		disable_wp_updates = ?, disable_file_editing = ?
+		disable_wp_updates = ?, disable_file_editing = ?,
+		wp_debug_enabled = ?, wp_post_revisions = ?, wp_memory_limit = ?
 		WHERE domain = ? OR (char(10) || aliases || char(10)) LIKE ('%' || char(10) || ? || char(10) || '%')`,
-		fcEnabled, req.TTL, disableUpdates, disableEditing, req.Domain, req.Domain)
+		fcEnabled, req.TTL, disableUpdates, disableEditing, wpDebug2, req.WPPostRevisions, req.WPMemoryLimit, req.Domain, req.Domain)
 
 	// 更新 wp-config.php
 	var webRoot string
 	db.QueryRow("SELECT web_root FROM websites WHERE domain = ? OR (char(10) || aliases || char(10)) LIKE ('%' || char(10) || ? || char(10) || '%')", req.Domain, req.Domain).Scan(&webRoot)
 	if webRoot != "" {
-		if err := executor.ApplyWPOptimizations(webRoot, req.DisableWPUpdates, req.DisableFileEditing); err != nil {
+		opts := executor.WPOptimizations{
+				DisableUpdates:    req.DisableWPUpdates,
+				DisableFileEditing: req.DisableFileEditing,
+				WPDebug:           req.WPDebugEnabled,
+				WPPostRevisions:   req.WPPostRevisions,
+				WPMemoryLimit:     req.WPMemoryLimit,
+			}
+			if err := executor.ApplyWPOptimizations(webRoot, opts); err != nil {
 			log.Printf("ApplyWPOptimizations 失败 (site %s): %v", req.Domain, err)
 		}
 	}

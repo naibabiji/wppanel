@@ -70,7 +70,7 @@
                 <div><dt class="text-sm text-gray-400">用户名</dt><dd class="text-white font-mono text-sm" x-text="site.db_user"></dd></div>
             </dl>
             <button @click="dbPasswordModal = true" class="text-sm py-1.5 px-3 rounded" style="background-color: #1e3a5f; color: #93c5fd;">修改密码</button>
-            <button @click="fixWPConfig()" :disabled="dbSubmitting" class="text-sm py-1.5 px-3 rounded ml-2" style="background-color: #14532d; color: #86efac;" x-text="dbSubmitting ? '处理中...' : '填写数据库信息'"></button>
+            <button @click="fixWPConfig()" :disabled="dbSubmitting" class="text-sm py-1.5 px-3 rounded ml-2" style="background-color: #14532d; color: #86efac;" x-text="dbSubmitting ? '处理中...' : '同步数据库信息'"></button>
             <button @click="clearDatabase()" :disabled="dbSubmitting" class="text-sm py-1.5 px-3 rounded ml-2" style="background-color: #7f1d1d; color: #fca5a5;" x-text="dbSubmitting ? '清空中...' : '清空数据库'"></button>
 
             <hr class="my-4 border-gray-700">
@@ -195,6 +195,29 @@
                     <span>禁止后台文件编辑</span>
                 </label>
             </div>
+            <div class="flex items-center space-x-3 mb-3" x-show="site.site_type === 'wordpress'">
+                <label class="flex items-center space-x-2 text-sm text-gray-300 cursor-pointer">
+                    <input type="checkbox" x-model="wpDebug">
+                    <span>启用调试模式（WP_DEBUG）</span>
+                </label>
+            </div>
+            <div x-show="wpDebug" class="mb-3 ml-6">
+                <p class="text-xs text-gray-400">开启后 PHP 错误和警告写入 wp-content/debug.log，排查网站问题时临时开启，正常使用请关闭。</p>
+            </div>
+            <div class="flex items-center space-x-3 mb-3" x-show="site.site_type === 'wordpress'">
+                <label class="text-sm text-gray-300">
+                    <span>文章修订版本数</span>
+                    <input type="number" x-model="wpPostRevisions" class="input-field w-24 text-sm py-1 ml-2" min="-1" placeholder="默认">
+                </label>
+                <span class="text-xs text-gray-500">留空=WordPress默认（无限制），0=不保留修订，建议设3~5减少数据库占用</span>
+            </div>
+            <div class="flex items-center space-x-3 mb-3" x-show="site.site_type === 'wordpress'">
+                <label class="text-sm text-gray-300">
+                    <span>PHP 内存限制</span>
+                    <input type="text" x-model="wpMemoryLimit" class="input-field w-24 text-sm py-1 ml-2" placeholder="默认 40M">
+                </label>
+                <span class="text-xs text-gray-500">如 128M、256M，遇到内存不足错误（白屏/500）时调高</span>
+            </div>
             <div class="flex items-center space-x-3 mb-4" x-show="site.site_type === 'wordpress'">
                 <label class="flex items-center space-x-2 text-sm text-gray-300 cursor-pointer">
                     <input type="checkbox" x-model="xmlrpcEnabled">
@@ -206,7 +229,7 @@
                 <button @click="saveWPOptimizations()" :disabled="optimizationSaving" class="btn-primary text-sm" x-text="optimizationSaving ? '保存中...' : '保存设置'"></button>
                 <button x-show="fcacheEnabled" @click="clearFCache()" class="text-sm py-1.5 px-3 rounded" style="background-color: #7f1d1d; color: #fca5a5;">清除缓存</button>
             </div>
-            <div x-show="(fcacheEnabled || disableWPUpdates || disableFileEditing) && site.site_type === 'wordpress'" class="flex items-center space-x-3 mb-3">
+            <div x-show="(fcacheEnabled || disableWPUpdates || disableFileEditing || wpDebug) && site.site_type === 'wordpress'" class="flex items-center space-x-3 mb-3">
                 <button x-show="pluginStatus === 'not_installed'" @click="installPlugin()" :disabled="pluginInstalling" class="btn-primary text-sm py-1.5" x-text="pluginInstalling ? '安装中...' : '安装配套插件'"></button>
                 <button x-show="pluginStatus === 'update_available'" @click="installPlugin()" :disabled="pluginInstalling" class="text-sm py-1.5 px-3 rounded" style="background-color: #166534; color: #bbf7d0;" x-text="pluginInstalling ? '更新中...' : '更新配套插件'"></button>
                 <span x-show="pluginStatus === 'installed'" class="text-xs text-green-400">✓ 插件已安装</span>
@@ -386,6 +409,9 @@ function websiteDetail() {
         disableWPUpdates: false,
         disableFileEditing: false,
         xmlrpcEnabled: false,
+        wpDebug: false,
+        wpPostRevisions: -1,
+        wpMemoryLimit: '',
         logRetentionDays: 7,
         optimizationSaving: false,
         pluginStatus: 'not_installed',
@@ -412,6 +438,9 @@ function websiteDetail() {
                     this.disableWPUpdates = r.data.disable_wp_updates || false;
                     this.disableFileEditing = r.data.disable_file_editing || false;
                     this.xmlrpcEnabled = r.data.xmlrpc_enabled || false;
+                    this.wpDebug = r.data.wp_debug_enabled || false;
+                    this.wpPostRevisions = r.data.wp_post_revisions != null ? r.data.wp_post_revisions : -1;
+                    this.wpMemoryLimit = r.data.wp_memory_limit || '';
                     this.logRetentionDays = r.data.log_retention_days || 7;
                     this.monitoringEnabled = r.data.monitoring_enabled || false;
                     this.monitoringInterval = r.data.monitoring_interval || 5;
@@ -685,7 +714,10 @@ function websiteDetail() {
                         fcache_ttl: parseInt(this.fcacheTTL) || 300,
                         disable_wp_updates: this.disableWPUpdates,
                         disable_file_editing: this.disableFileEditing,
-                        xmlrpc_enabled: this.xmlrpcEnabled
+                        xmlrpc_enabled: this.xmlrpcEnabled,
+                        wp_debug_enabled: this.wpDebug,
+                        wp_post_revisions: (this.wpPostRevisions === '' || this.wpPostRevisions === null) ? -1 : parseInt(this.wpPostRevisions),
+                        wp_memory_limit: this.wpMemoryLimit
                     }
                 });
                 showToast('保存成功', 'success');
