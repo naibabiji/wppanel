@@ -19,7 +19,7 @@ func Open(dbPath string) error {
 		return fmt.Errorf("failed to create database directory: %w", err)
 	}
 
-	dsn := dbPath + "?_journal_mode=WAL&_busy_timeout=5000&_synchronous=NORMAL&_cache_size=-8000"
+	dsn := dbPath + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=synchronous(NORMAL)&_pragma=cache_size(-8000)"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return fmt.Errorf("failed to open sqlite: %w", err)

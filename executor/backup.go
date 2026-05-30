@@ -199,7 +199,20 @@ func executeAutoBackups() {
 		log.Printf("自动备份: 查询 backup_settings 失败: %v", err)
 		return
 	}
-	defer rows.Close()
+	type backupTask struct {
+		siteID    int
+		keepCount int
+		domain    string
+		dbName    string
+	}
+	var tasks []backupTask
+	for rows.Next() {
+		var t backupTask
+		if rows.Scan(&t.siteID, &t.keepCount, &t.domain, &t.dbName) == nil {
+			tasks = append(tasks, t)
+		}
+	}
+	rows.Close()
 
 	dbPass := readMariaDBPassword()
 	if dbPass == "" {
@@ -209,12 +222,11 @@ func executeAutoBackups() {
 
 	count := 0
 	failCount := 0
-	for rows.Next() {
-		var siteID, keepCount int
-		var domain, dbName string
-		if rows.Scan(&siteID, &keepCount, &domain, &dbName) != nil {
-			continue
-		}
+	for _, t := range tasks {
+		siteID := t.siteID
+		keepCount := t.keepCount
+		domain := t.domain
+		dbName := t.dbName
 
 		backupDir := filepath.Join(cfg.Panel.BackupDir, domain, "db")
 		os.MkdirAll(backupDir, 0700)
@@ -278,17 +290,23 @@ func cleanupOldBackups(siteID int, domain string, keepCount int) {
 	if err != nil {
 		return
 	}
-	defer rows.Close()
-
+	type oldBackup struct {
+		id       int
+		filename string
+	}
+	var backups []oldBackup
 	for rows.Next() {
-		var id int
-		var filename string
-		if rows.Scan(&id, &filename) != nil {
-			continue
+		var b oldBackup
+		if rows.Scan(&b.id, &b.filename) == nil {
+			backups = append(backups, b)
 		}
-		filePath := filepath.Join(cfg.Panel.BackupDir, domain, "db", filename)
+	}
+	rows.Close()
+
+	for _, b := range backups {
+		filePath := filepath.Join(cfg.Panel.BackupDir, domain, "db", b.filename)
 		os.Remove(filePath)
-		db.Exec("DELETE FROM db_backups WHERE id = ?", id)
+		db.Exec("DELETE FROM db_backups WHERE id = ?", b.id)
 	}
 }
 
