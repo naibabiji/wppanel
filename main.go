@@ -100,7 +100,7 @@ func main() {
 	}
 
 	if *resetAdmin {
-		resetAllAdmin(cfg)
+		resetAllAdmin(cfg, *configPath)
 		return
 	}
 
@@ -165,14 +165,24 @@ func main() {
 	}
 	executor.EnsureFastCGICacheConfig()
 	// 升级后重建全部 Nginx 和 PHP-FPM 配置，确保新模板规则对旧站生效
-	go executor.RegenerateAllSitesNginx()
-	go executor.RegenerateAllSitesFPM()
+	executor.GoSafe(func() { executor.RegenerateAllSitesNginx() })
+	executor.GoSafe(func() { executor.RegenerateAllSitesFPM() })
 	log.Println("Nginx 日志 map 配置已就绪")
 	log.Println("FastCGI 缓存配置已就绪")
 	log.Println("Fail2ban 配置初始化完成")
 	// WordPress safety baseline (idempotent, only writes if not present)
 	executor.EnsureWordPressBaseline()
 	executor.EnsureWPCommand()
+	// 确保 sshpass 已安装（远程备份密码认证需要）
+	if _, err := exec.LookPath("sshpass"); err != nil {
+		log.Println("sshpass 未安装，正在安装...")
+		exec.Command("apt-get", "update").Run()
+		if err := exec.Command("apt-get", "install", "-y", "sshpass").Run(); err != nil {
+			log.Printf("sshpass 安装失败，远程备份密码认证功能不可用: %v", err)
+		} else {
+			log.Println("sshpass 安装完成")
+		}
+	}
 	executor.StartProcessGuard()
 	executor.StartAlertMonitor(Version)
 	executor.StartTelemetry(Version)
@@ -230,7 +240,7 @@ func seedAdminUser(cfg *config.Config) {
 	log.Println("管理员用户已从 config.json 初始化")
 }
 
-func resetAllAdmin(cfg *config.Config) {
+func resetAllAdmin(cfg *config.Config, configPath string) {
 	username := "wpadmin"
 	webPass := randomString(16)
 	basicPass := randomString(16)
@@ -262,7 +272,6 @@ func resetAllAdmin(cfg *config.Config) {
 	}
 
 	// Update config.json (BasicAuth)
-	configPath := "/www/server/panel/config.json"
 	data, err := os.ReadFile(configPath)
 	if err == nil {
 		var cfgMap map[string]map[string]interface{}
@@ -276,7 +285,11 @@ func resetAllAdmin(cfg *config.Config) {
 				admin["password_hash"] = string(webHash)
 			}
 			if newData, err := json.MarshalIndent(cfgMap, "", "  "); err == nil {
-				os.WriteFile(configPath, newData, 0600)
+				if err := os.WriteFile(configPath, newData, 0600); err != nil {
+					fmt.Printf("错误: 写入配置文件失败: %v\n", err)
+					fmt.Println("BasicAuth 密码未更新，请检查配置文件权限")
+					os.Exit(1)
+				}
 			}
 		}
 	}

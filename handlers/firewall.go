@@ -72,7 +72,7 @@ func (h *FirewallHandler) Unban(c *gin.Context) {
 		return
 	}
 
-	go func() {
+	executor.GoSafe(func() {
 		switch jail {
 		case "wppanel", "wppanel-404", "wppanel-sshd":
 			executor.Execute("fail2ban-client", "set", jail, "unbanip", ip)
@@ -81,7 +81,7 @@ func (h *FirewallHandler) Unban(c *gin.Context) {
 			executor.RemoveNginxBan(ip)
 		}
 		executor.RemovePersistBan(ip)
-	}()
+	})
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"message": "IP " + ip + " 已解除封禁"}))
 }
@@ -129,9 +129,9 @@ func (h *FirewallHandler) PermanentBan(c *gin.Context) {
 		return
 	}
 
-	go executor.AddPersistBan(ip)
+	executor.GoSafe(func() { executor.AddPersistBan(ip) })
 	if jail == "wppanel" || jail == "wppanel-404" {
-		go executor.AddNginxBan(ip)
+		executor.GoSafe(func() { executor.AddNginxBan(ip) })
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"message": "IP " + ip + " 已加入永久黑名单"}))

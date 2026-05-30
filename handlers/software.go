@@ -115,16 +115,12 @@ func (h *SoftwareHandler) ViewLog(c *gin.Context) {
 	if n, err := strconv.Atoi(c.DefaultQuery("lines", "200")); err == nil && n > 0 && n <= 500 {
 		lines = n
 	}
-	data, err := os.ReadFile(path)
-	if err != nil {
+	content := tailFile(path, lines)
+	if content == "" {
 		c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"content": "（日志文件为空或不可读）"}))
 		return
 	}
-	allLines := strings.Split(string(data), "\n")
-	if len(allLines) > lines {
-		allLines = allLines[len(allLines)-lines:]
-	}
-	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"content": strings.Join(allLines, "\n")}))
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"content": content}))
 }
 
 func (h *SoftwareHandler) ClearLog(c *gin.Context) {

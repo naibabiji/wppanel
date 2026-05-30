@@ -339,7 +339,9 @@ func executeDeleteSite(task *Task) TaskResult {
 	os.RemoveAll(filepath.Join(cfg.Paths.Certificates, site.Domain))
 
 	db := database.GetDB()
-	db.Exec("DELETE FROM websites WHERE id = ?", site.ID)
+	if _, err := db.Exec("DELETE FROM websites WHERE id = ?", site.ID); err != nil {
+		return TaskResult{Success: false, Message: "清理数据库记录失败: " + err.Error()}
+	}
 
 	return TaskResult{Success: true, Message: "网站 " + site.Domain + " 已删除"}
 }
@@ -360,7 +362,9 @@ func executePauseSite(task *Task) TaskResult {
 	}
 
 	db := database.GetDB()
-	db.Exec("UPDATE websites SET status = 'paused', updated_at = CURRENT_TIMESTAMP WHERE id = ?", site.ID)
+	if _, err := db.Exec("UPDATE websites SET status = 'paused', updated_at = CURRENT_TIMESTAMP WHERE id = ?", site.ID); err != nil {
+		return TaskResult{Success: false, Message: "更新网站状态失败: " + err.Error()}
+	}
 
 	return TaskResult{Success: true, Message: "网站 " + site.Domain + " 已暂停"}
 }
@@ -385,7 +389,9 @@ func executeEnableSite(task *Task) TaskResult {
 	}
 
 	db := database.GetDB()
-	db.Exec("UPDATE websites SET status = 'active', updated_at = CURRENT_TIMESTAMP WHERE id = ?", site.ID)
+	if _, err := db.Exec("UPDATE websites SET status = 'active', updated_at = CURRENT_TIMESTAMP WHERE id = ?", site.ID); err != nil {
+		return TaskResult{Success: false, Message: "更新网站状态失败: " + err.Error()}
+	}
 
 	return TaskResult{Success: true, Message: "网站 " + site.Domain + " 已启用"}
 }
@@ -618,7 +624,7 @@ func ReinstallWordPress(packagePath, webRoot, dbName, dbUser, systemUser string,
 		return fmt.Errorf("重建网站目录失败: %w", err)
 	}
 
-	tmpDir := "/tmp/wp_reinstall_" + dbName
+	tmpDir := "/tmp/wp_reinstall_" + dbName + "_" + generatePassword(8)
 	if err := deployWordPress(packagePath, webRoot, tmpDir); err != nil {
 		return fmt.Errorf("WordPress 部署失败: %w", err)
 	}

@@ -130,6 +130,7 @@
                     <button @click="check()" :disabled="checking" class="btn-secondary text-xs" x-text="checking ? '检查中...' : '刷新'"></button>
                     <button @click="doUpdate()" x-show="count > 0" :disabled="updating" class="btn-primary text-xs" x-text="updating ? '更新中...' : '一键更新'"></button>
                 </div>
+                <p x-show="count > 0" class="text-xs text-yellow-500 mt-2">更新过程可能持续数分钟，期间请勿关闭或刷新页面。</p>
                 <pre x-show="output" class="text-xs text-gray-400 mt-3 p-3 rounded max-h-48 overflow-y-auto" style="background-color: #020617;" x-text="output"></pre>
                 <p x-show="msg" class="text-sm mt-2" :class="ok ? 'text-green-400' : 'text-red-400'" x-text="msg"></p>
             </div>
@@ -591,7 +592,7 @@ function systemUpdate() {
             this.checking = false;
         },
         async doUpdate() {
-            if (!await confirmModal('确认执行系统更新？更新期间服务不受影响，但建议在低峰期操作。')) return;
+            if (!await confirmModal('确认执行系统更新？\n\n更新可能需要数分钟。如页面超时请不要重复点击——后台仍在执行，重复操作将导致 dpkg 锁冲突。')) return;
             this.updating = true;
             this.msg = '';
             this.output = '';

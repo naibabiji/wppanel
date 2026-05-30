@@ -108,8 +108,11 @@ func (h *UpdateHandler) Update(c *gin.Context) {
 	}
 
 	// Download new binary
-	tmpDir := "/tmp/wp-panel-update"
-	os.MkdirAll(tmpDir, 0755)
+	tmpDir, err := os.MkdirTemp("", "wp-panel-update-*")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("创建临时目录失败"))
+		return
+	}
 	defer os.RemoveAll(tmpDir)
 
 	newBinary := filepath.Join(tmpDir, binaryName)

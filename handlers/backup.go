@@ -171,9 +171,15 @@ func (h *BackupHandler) UploadRestore(c *gin.Context) {
 		return
 	}
 
-	safeName := filepath.Base(file.Filename)
-	tmpPath := filepath.Join("/tmp", "wppanel_upload_"+safeName)
+	tmpFile, err := os.CreateTemp("", "wppanel_upload_*")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("创建临时文件失败"))
+		return
+	}
+	tmpPath := tmpFile.Name()
+	tmpFile.Close()
 	if err := c.SaveUploadedFile(file, tmpPath); err != nil {
+		os.Remove(tmpPath)
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse("上传失败"))
 		return
 	}
@@ -246,7 +252,7 @@ func (h *BackupHandler) ClearDatabase(c *gin.Context) {
 	}
 
 	cmd := exec.Command("mysql", "-u", "root", "-B", "-N", "-e",
-		fmt.Sprintf("SELECT CONCAT('DROP TABLE IF EXISTS `', TABLE_NAME, '`;') FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = '%s' AND TABLE_TYPE = 'BASE TABLE'", site.DBName))
+		fmt.Sprintf("SELECT CONCAT('DROP TABLE IF EXISTS `', REPLACE(TABLE_NAME, '`', '``'), '`;') FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = '%s' AND TABLE_TYPE = 'BASE TABLE'", site.DBName))
 	cmd.Env = append(os.Environ(), "MYSQL_PWD="+dbPass)
 	dropSQL, err := cmd.CombinedOutput()
 	if err != nil {

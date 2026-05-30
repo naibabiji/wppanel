@@ -1,6 +1,9 @@
 package executor
 
-import "os"
+import (
+	"log"
+	"os"
+)
 
 const wpScript = `#!/bin/bash
 # WP Panel CLI — wp
@@ -171,5 +174,7 @@ esac
 
 func EnsureWPCommand() {
 	path := "/usr/local/bin/wp"
-	os.WriteFile(path, []byte(wpScript), 0755)
+	if err := os.WriteFile(path, []byte(wpScript), 0755); err != nil {
+		log.Printf("wp 命令安装失败 (%s): %v", path, err)
+	}
 }

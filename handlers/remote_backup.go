@@ -58,11 +58,6 @@ func SaveRemoteBackup(c *gin.Context) {
 				return
 			}
 		}
-	} else if req.Enabled {
-		if _, err := exec.LookPath("sshpass"); err != nil {
-			exec.Command("apt-get", "update").Run()
-			exec.Command("apt-get", "install", "-y", "sshpass").Run()
-		}
 	}
 
 	enabledVal := 0
@@ -125,11 +120,19 @@ func TestRemoteBackup(c *gin.Context) {
 	}
 
 	// 测试 rsync 到远程备份目录
-	testFile := "/tmp/wp-panel-rsync-test.txt"
-	if err := os.WriteFile(testFile, []byte("WP Panel rsync test"), 0644); err != nil {
+	tmpFile, err := os.CreateTemp("", "wp-panel-rsync-test-*")
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse("创建测试文件失败"))
 		return
 	}
+	testFile := tmpFile.Name()
+	if _, err := tmpFile.Write([]byte("WP Panel rsync test")); err != nil {
+		tmpFile.Close()
+		os.Remove(testFile)
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("创建测试文件失败"))
+		return
+	}
+	tmpFile.Close()
 	defer os.Remove(testFile)
 
 	var testCmd *exec.Cmd

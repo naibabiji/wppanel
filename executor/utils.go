@@ -3,9 +3,22 @@ package executor
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"log"
 	"regexp"
+	"runtime/debug"
 	"strings"
 )
+
+func GoSafe(fn func()) {
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("goroutine panic: %v\n%s", r, debug.Stack())
+			}
+		}()
+		fn()
+	}()
+}
 
 func generatePassword(length int) string {
 	b := make([]byte, length)

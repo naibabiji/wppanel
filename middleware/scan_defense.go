@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/naibabiji/wp-panel/executor"
@@ -18,17 +19,15 @@ var browserUAs = []string{
 	"MSIE", "Trident", "Edg", "OPR", "Brave", "Vivaldi",
 }
 
-var nftInitialized bool
+var ensureNftablesOnce sync.Once
 
 func ensureNftables() {
-	if nftInitialized {
-		return
-	}
-	exec.Command("bash", "-c", `nft add table ip wppanel_persist 2>/dev/null
+	ensureNftablesOnce.Do(func() {
+		exec.Command("bash", "-c", `nft add table ip wppanel_persist 2>/dev/null
 nft add chain ip wppanel_persist input { type filter hook input priority -1\; } 2>/dev/null
 nft add set ip wppanel_persist banned_ips { type ipv4_addr\; } 2>/dev/null
 nft list chain ip wppanel_persist input 2>/dev/null | grep -q "saddr @banned_ips drop" || nft add rule ip wppanel_persist input ip saddr @banned_ips drop`).Run()
-	nftInitialized = true
+	})
 }
 
 func isBrowserLike(c *gin.Context) bool {

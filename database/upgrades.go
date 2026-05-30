@@ -27,6 +27,7 @@
 package database
 
 import (
+	"database/sql"
 	"fmt"
 	"log"
 	"strings"
@@ -166,17 +167,23 @@ func RunUpgrades() error {
 
 	// 查询当前版本
 	var currentVersion string
-	DB.QueryRow("SELECT version FROM schema_version ORDER BY updated_at DESC LIMIT 1").Scan(&currentVersion)
+	if err := DB.QueryRow("SELECT version FROM schema_version ORDER BY updated_at DESC LIMIT 1").Scan(&currentVersion); err != nil && err != sql.ErrNoRows {
+		return fmt.Errorf("查询当前版本失败: %w", err)
+	}
 
 	// 新装检测：currentVersion 为空时，检查数据库是否已包含最新 schema。
 	// migrations.go 已全量建表，若最新升级中的字段已存在则说明是新装，无需执行任何升级。
 	if currentVersion == "" {
 		if table, col := newInstallCanary(); col != "" {
 			var exists int
-			DB.QueryRow("SELECT COUNT(*) FROM pragma_table_info(?) WHERE name=?", table, col).Scan(&exists)
+			if err := DB.QueryRow("SELECT COUNT(*) FROM pragma_table_info(?) WHERE name=?", table, col).Scan(&exists); err != nil {
+				return fmt.Errorf("检测数据库结构失败: %w", err)
+			}
 			if exists > 0 {
 				log.Printf("[升级] 新装数据库，跳过所有升级步骤")
-				DB.Exec("INSERT INTO schema_version (version) VALUES (?)", LatestVersion())
+				if _, err := DB.Exec("INSERT INTO schema_version (version) VALUES (?)", LatestVersion()); err != nil {
+					return fmt.Errorf("记录新装版本失败: %w", err)
+				}
 				return nil
 			}
 		}
@@ -185,9 +192,13 @@ func RunUpgrades() error {
 	// Beta 版本归一化到 1.0.0 正式基线
 	if currentVersion != "" && isBetaVersion(currentVersion) {
 		log.Printf("[升级] beta 版本 %s 归一化到 1.0.0", currentVersion)
-		DB.Exec("DELETE FROM schema_version")
-		DB.Exec("INSERT INTO schema_version (version) VALUES ('1.0.0')")
-		currentVersion = "1.0.0"
+		if _, err := DB.Exec("DELETE FROM schema_version"); err != nil {
+			log.Printf("[升级] 清理 beta 版本记录失败: %v", err)
+		} else if _, err := DB.Exec("INSERT INTO schema_version (version) VALUES ('1.0.0')"); err != nil {
+			log.Printf("[升级] 写入归一化版本失败: %v", err)
+		} else {
+			currentVersion = "1.0.0"
+		}
 	}
 
 	// 验证当前版本合法性：必须在 upgrades 列表中，或者是基线 1.0.0，或者是空（新装）
@@ -246,9 +257,13 @@ func RunUpgrades() error {
 
 	// 新装数据库：无任何版本记录，直接写入最新版本号，下次启动跳过所有升级
 	var count int
-	DB.QueryRow("SELECT COUNT(*) FROM schema_version").Scan(&count)
+	if err := DB.QueryRow("SELECT COUNT(*) FROM schema_version").Scan(&count); err != nil {
+		log.Printf("[升级] 查询版本记录失败: %v", err)
+	}
 	if count == 0 {
-		DB.Exec("INSERT INTO schema_version (version) VALUES (?)", LatestVersion())
+		if _, err := DB.Exec("INSERT INTO schema_version (version) VALUES (?)", LatestVersion()); err != nil {
+			return fmt.Errorf("记录新装版本失败: %w", err)
+		}
 	}
 
 	return nil

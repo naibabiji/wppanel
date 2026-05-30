@@ -1,8 +1,10 @@
 package executor
 
 import (
+	"crypto/tls"
 	"fmt"
 	"html"
+	"net/http"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -70,6 +72,16 @@ func (m *alertManager) loop() {
 }
 
 func (m *alertManager) runChecks() {
+	// 站点监控的串行 curl 调用可能耗时较长（多站点 + 超时），
+	// 提前到全局锁之外执行，避免阻塞 CPU/内存/磁盘等其他告警规则。
+	sitePreChecked := false
+	var siteFiring bool
+	var siteMsg string
+	if isRuleEnabled("alert_site") {
+		siteFiring, siteMsg = checkSites()
+		sitePreChecked = true
+	}
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -86,7 +98,13 @@ func (m *alertManager) runChecks() {
 			continue
 		}
 
-		instantFiring, msg := r.checkFn()
+		var instantFiring bool
+		var msg string
+		if r.key == "alert_site" && sitePreChecked {
+			instantFiring, msg = siteFiring, siteMsg
+		} else {
+			instantFiring, msg = r.checkFn()
+		}
 		now := time.Now()
 		firing := r.sustainedFiring(instantFiring, now)
 		if firing && !r.firing {
@@ -540,55 +558,26 @@ func checkSites() (bool, string) {
 	}
 	defer rows.Close()
 
-	var msgs []string
+	type siteInfo struct {
+		id       string
+		domain   string
+		ssl      int
+		interval int
+	}
+	var sites []siteInfo
 	seen := make(map[string]bool)
 	for rows.Next() {
-		var id, domain string
-		var ssl, interval int
-		if rows.Scan(&id, &domain, &ssl, &interval) != nil {
+		var s siteInfo
+		if rows.Scan(&s.id, &s.domain, &s.ssl, &s.interval) != nil {
 			continue
 		}
-		seen[id] = true
-		if interval <= 0 {
-			interval = 5
+		seen[s.id] = true
+		if s.interval <= 0 {
+			s.interval = 5
 		}
-
-		if last, ok := siteLastCheck[id]; ok && time.Since(last) < time.Duration(interval)*time.Minute {
-			if msg, ok := siteFailureMessages[id]; ok && siteFailureCounts[id] >= siteFailureAlertThreshold {
-				msgs = append(msgs, msg)
-			}
-			continue
-		}
-		siteLastCheck[id] = time.Now()
-
-		proto := "http"
-		if ssl == 1 {
-			proto = "https"
-		}
-		url := proto + "://" + domain + "/?wp_hc=" + strconv.FormatInt(time.Now().Unix(), 10)
-		out, err := exec.Command("curl", "-k", "-s", "-o", "/dev/null", "-w", "%{http_code}", "--max-time", "10", "-A", "WP-Panel-HealthCheck/1.0", url).Output()
-		if err != nil {
-			msg := fmt.Sprintf("%s 无法访问 (%v)", domain, err)
-			siteFailureMessages[id] = msg
-			siteFailureCounts[id]++
-			if siteFailureCounts[id] >= siteFailureAlertThreshold {
-				msgs = append(msgs, msg)
-			}
-			continue
-		}
-		code, _ := strconv.Atoi(strings.TrimSpace(string(out)))
-		if code < 200 || code >= 400 {
-			msg := fmt.Sprintf("%s 返回 %d", domain, code)
-			siteFailureMessages[id] = msg
-			siteFailureCounts[id]++
-			if siteFailureCounts[id] >= siteFailureAlertThreshold {
-				msgs = append(msgs, msg)
-			}
-		} else {
-			delete(siteFailureMessages, id)
-			delete(siteFailureCounts, id)
-		}
+		sites = append(sites, s)
 	}
+
 	for id := range siteFailureMessages {
 		if !seen[id] {
 			delete(siteFailureMessages, id)
@@ -602,6 +591,85 @@ func checkSites() (bool, string) {
 			}
 		}
 	}
+
+	type checkTarget struct {
+		id     string
+		domain string
+		url    string
+	}
+	var toCheck []checkTarget
+	var msgs []string
+	for _, s := range sites {
+		if last, ok := siteLastCheck[s.id]; ok && time.Since(last) < time.Duration(s.interval)*time.Minute {
+			if msg, ok := siteFailureMessages[s.id]; ok && siteFailureCounts[s.id] >= siteFailureAlertThreshold {
+				msgs = append(msgs, msg)
+			}
+			continue
+		}
+		siteLastCheck[s.id] = time.Now()
+		proto := "http"
+		if s.ssl == 1 {
+			proto = "https"
+		}
+		url := proto + "://" + s.domain + "/?wp_hc=" + strconv.FormatInt(time.Now().Unix(), 10)
+		toCheck = append(toCheck, checkTarget{id: s.id, domain: s.domain, url: url})
+	}
+
+	if len(toCheck) == 0 {
+		if len(msgs) > 0 {
+			return true, strings.Join(msgs, "；")
+		}
+		return false, ""
+	}
+
+	httpClient := &http.Client{
+		Timeout: 10 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		},
+	}
+
+	type result struct {
+		id     string
+		domain string
+		code   int
+		err    error
+	}
+	resultCh := make(chan result, len(toCheck))
+	for _, t := range toCheck {
+		go func(t checkTarget) {
+			resp, err := httpClient.Get(t.url)
+			if err != nil {
+				resultCh <- result{id: t.id, domain: t.domain, err: err}
+				return
+			}
+			resp.Body.Close()
+			resultCh <- result{id: t.id, domain: t.domain, code: resp.StatusCode}
+		}(t)
+	}
+
+	for range toCheck {
+		r := <-resultCh
+		if r.err != nil {
+			msg := fmt.Sprintf("%s 无法访问 (%v)", r.domain, r.err)
+			siteFailureMessages[r.id] = msg
+			siteFailureCounts[r.id]++
+			if siteFailureCounts[r.id] >= siteFailureAlertThreshold {
+				msgs = append(msgs, msg)
+			}
+		} else if r.code < 200 || r.code >= 400 {
+			msg := fmt.Sprintf("%s 返回 %d", r.domain, r.code)
+			siteFailureMessages[r.id] = msg
+			siteFailureCounts[r.id]++
+			if siteFailureCounts[r.id] >= siteFailureAlertThreshold {
+				msgs = append(msgs, msg)
+			}
+		} else {
+			delete(siteFailureMessages, r.id)
+			delete(siteFailureCounts, r.id)
+		}
+	}
+
 	if len(msgs) > 0 {
 		return true, strings.Join(msgs, "；")
 	}

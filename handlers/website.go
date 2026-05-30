@@ -573,8 +573,9 @@ func tailFile(path string, n int) string {
 	const bufSize = 4096
 	info, _ := f.Stat()
 	pos := info.Size()
-	var data []byte
-	for pos > 0 && len(data) < n*bufSize {
+	var chunks [][]byte
+	total := 0
+	for pos > 0 && total < n*bufSize {
 		readSize := int64(bufSize)
 		if pos < readSize {
 			readSize = pos
@@ -582,7 +583,12 @@ func tailFile(path string, n int) string {
 		pos -= readSize
 		b := make([]byte, readSize)
 		f.ReadAt(b, pos)
-		data = append(b, data...)
+		chunks = append(chunks, b)
+		total += len(b)
+	}
+	var data []byte
+	for i := len(chunks) - 1; i >= 0; i-- {
+		data = append(data, chunks[i]...)
 	}
 	lines := strings.Split(string(data), "\n")
 	if len(lines) > n {
@@ -834,7 +840,7 @@ func (h *WebsiteHandler) UpdateCache(c *gin.Context) {
 	}
 	database.GetDB().Exec("UPDATE websites SET fastcgi_cache_enabled = ?, fastcgi_cache_ttl = ? WHERE id = ?", enabled, req.TTL, id)
 
-	go executor.RegenerateSiteNginx(id)
+	executor.GoSafe(func() { executor.RegenerateSiteNginx(id) })
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"message": "缓存设置已更新"}))
 }
@@ -896,13 +902,17 @@ func (h *WebsiteHandler) SaveWPOptimizations(c *gin.Context) {
 		wpDebug = 1
 	}
 
-	db.Exec(`UPDATE websites SET
+	_, err = db.Exec(`UPDATE websites SET
 		fastcgi_cache_enabled = ?, fastcgi_cache_ttl = ?,
 		disable_wp_updates = ?, disable_file_editing = ?, xmlrpc_enabled = ?,
 		wp_debug_enabled = ?, wp_post_revisions = ?, wp_memory_limit = ?
 		WHERE id = ?`,
 		fcEnabled, req.FCacheTTL, disableUpdates, disableEditing, xmlrpcEnabled,
 		wpDebug, req.WPPostRevisions, req.WPMemoryLimit, id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("保存失败"))
+		return
+	}
 
 	// 更新 wp-config.php
 	var webRoot string
@@ -922,7 +932,7 @@ func (h *WebsiteHandler) SaveWPOptimizations(c *gin.Context) {
 
 	// FastCGI / XML-RPC 配置变化时重载 Nginx
 	if oldFCacheEnabled != fcEnabled || oldFCacheTTL != req.FCacheTTL || oldXMLRPCEnabled != xmlrpcEnabled {
-		go executor.RegenerateSiteNginx(id)
+		executor.GoSafe(func() { executor.RegenerateSiteNginx(id) })
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"message": "已保存"}))
@@ -961,7 +971,7 @@ func (h *WebsiteHandler) ClearCache(c *gin.Context) {
 		return
 	}
 
-	go executor.ClearSiteCache(id)
+	executor.GoSafe(func() { executor.ClearSiteCache(id) })
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"message": "缓存已清除，旧缓存将在60分钟内自动回收"}))
 }
@@ -1013,6 +1023,13 @@ func (h *WebsiteHandler) ReinstallWordPress(c *gin.Context) {
 // CacheHelperHandler — WordPress 插件 API
 // ============================================================
 
+func escapeLike(s string) string {
+	s = strings.ReplaceAll(s, "\\", "\\\\")
+	s = strings.ReplaceAll(s, "%", "\\%")
+	s = strings.ReplaceAll(s, "_", "\\_")
+	return s
+}
+
 type CacheHelperHandler struct{}
 
 func (h *CacheHelperHandler) checkAPIKey(domain string, c *gin.Context) bool {
@@ -1029,8 +1046,8 @@ func (h *CacheHelperHandler) checkAPIKey(domain string, c *gin.Context) bool {
 	}
 	var storedKey string
 	err = database.GetDB().QueryRow(
-		"SELECT plugin_api_key FROM websites WHERE domain = ? OR (char(10) || aliases || char(10)) LIKE ('%' || char(10) || ? || char(10) || '%')",
-		domain, domain,
+		"SELECT plugin_api_key FROM websites WHERE domain = ? OR (char(10) || aliases || char(10)) LIKE ('%' || char(10) || ? || char(10) || '%') ESCAPE '\\'",
+		domain, escapeLike(domain),
 	).Scan(&storedKey)
 	if err != nil {
 		return false
@@ -1059,16 +1076,16 @@ func (h *CacheHelperHandler) UpdateCacheSettings(c *gin.Context) {
 	}
 
 	db := database.GetDB()
-	_, err := db.Exec("UPDATE websites SET fastcgi_cache_ttl = ? WHERE (domain = ? OR (char(10) || aliases || char(10)) LIKE ('%' || char(10) || ? || char(10) || '%'))", req.TTL, req.Domain, req.Domain)
+	_, err := db.Exec("UPDATE websites SET fastcgi_cache_ttl = ? WHERE (domain = ? OR (char(10) || aliases || char(10)) LIKE ('%' || char(10) || ? || char(10) || '%') ESCAPE '\\')", req.TTL, req.Domain, escapeLike(req.Domain))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse("更新失败"))
 		return
 	}
 
 	var siteID int
-	db.QueryRow("SELECT id FROM websites WHERE (domain = ? OR (char(10) || aliases || char(10)) LIKE ('%' || char(10) || ? || char(10) || '%'))", req.Domain, req.Domain).Scan(&siteID)
+	db.QueryRow("SELECT id FROM websites WHERE (domain = ? OR (char(10) || aliases || char(10)) LIKE ('%' || char(10) || ? || char(10) || '%') ESCAPE '\\')", req.Domain, escapeLike(req.Domain)).Scan(&siteID)
 	if siteID > 0 {
-		go executor.RegenerateSiteNginx(siteID)
+		executor.GoSafe(func() { executor.RegenerateSiteNginx(siteID) })
 	}
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"message": "TTL 已更新", "ttl": req.TTL}))
@@ -1089,15 +1106,15 @@ func (h *CacheHelperHandler) ClearByDomain(c *gin.Context) {
 
 	var siteID int
 	err := database.GetDB().QueryRow(
-		"SELECT id FROM websites WHERE (domain = ? OR (char(10) || aliases || char(10)) LIKE ('%' || char(10) || ? || char(10) || '%'))",
-		req.Domain, req.Domain,
+		"SELECT id FROM websites WHERE (domain = ? OR (char(10) || aliases || char(10)) LIKE ('%' || char(10) || ? || char(10) || '%') ESCAPE '\\')",
+		req.Domain, escapeLike(req.Domain),
 	).Scan(&siteID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, models.ErrorResponse("网站不存在"))
 		return
 	}
 
-	go executor.ClearSiteCache(siteID)
+	executor.GoSafe(func() { executor.ClearSiteCache(siteID) })
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"message": "缓存已清除"}))
 }
 
@@ -1115,8 +1132,8 @@ func (h *CacheHelperHandler) FindByDomain(c *gin.Context) {
 	var siteID, fcacheEnabled, fcacheTTL, disableUpdates, disableEditing, xmlrpcEnabled, wpDebugEnabled, wpPostRevisions int
 	var wpMemoryLimit string
 	err := database.GetDB().QueryRow(
-		"SELECT id, fastcgi_cache_enabled, fastcgi_cache_ttl, disable_wp_updates, disable_file_editing, xmlrpc_enabled, wp_debug_enabled, wp_post_revisions, wp_memory_limit FROM websites WHERE domain = ? OR (char(10) || aliases || char(10)) LIKE ('%' || char(10) || ? || char(10) || '%')",
-		domain, domain,
+		"SELECT id, fastcgi_cache_enabled, fastcgi_cache_ttl, disable_wp_updates, disable_file_editing, xmlrpc_enabled, wp_debug_enabled, wp_post_revisions, wp_memory_limit FROM websites WHERE domain = ? OR (char(10) || aliases || char(10)) LIKE ('%' || char(10) || ? || char(10) || '%') ESCAPE '\\'",
+		domain, escapeLike(domain),
 	).Scan(&siteID, &fcacheEnabled, &fcacheTTL, &disableUpdates, &disableEditing, &xmlrpcEnabled, &wpDebugEnabled, &wpPostRevisions, &wpMemoryLimit)
 	if err != nil {
 		c.JSON(http.StatusNotFound, models.ErrorResponse("网站不存在"))
@@ -1166,7 +1183,7 @@ func (h *CacheHelperHandler) UpdateOptimizerSettings(c *gin.Context) {
 	db := database.GetDB()
 
 	var oldFCacheEnabled, oldFCacheTTL int
-	db.QueryRow("SELECT fastcgi_cache_enabled, fastcgi_cache_ttl FROM websites WHERE domain = ? OR (char(10) || aliases || char(10)) LIKE ('%' || char(10) || ? || char(10) || '%')", req.Domain, req.Domain).
+	db.QueryRow("SELECT fastcgi_cache_enabled, fastcgi_cache_ttl FROM websites WHERE domain = ? OR (char(10) || aliases || char(10)) LIKE ('%' || char(10) || ? || char(10) || '%') ESCAPE '\\'", req.Domain, escapeLike(req.Domain)).
 		Scan(&oldFCacheEnabled, &oldFCacheTTL)
 
 	fcEnabled := 0
@@ -1187,16 +1204,20 @@ func (h *CacheHelperHandler) UpdateOptimizerSettings(c *gin.Context) {
 		wpDebug2 = 1
 	}
 
-	db.Exec(`UPDATE websites SET
+	_, err := db.Exec(`UPDATE websites SET
 		fastcgi_cache_enabled = ?, fastcgi_cache_ttl = ?,
 		disable_wp_updates = ?, disable_file_editing = ?,
 		wp_debug_enabled = ?, wp_post_revisions = ?, wp_memory_limit = ?
-		WHERE domain = ? OR (char(10) || aliases || char(10)) LIKE ('%' || char(10) || ? || char(10) || '%')`,
-		fcEnabled, req.TTL, disableUpdates, disableEditing, wpDebug2, req.WPPostRevisions, req.WPMemoryLimit, req.Domain, req.Domain)
+		WHERE domain = ? OR (char(10) || aliases || char(10)) LIKE ('%' || char(10) || ? || char(10) || '%') ESCAPE '\\'`,
+		fcEnabled, req.TTL, disableUpdates, disableEditing, wpDebug2, req.WPPostRevisions, req.WPMemoryLimit, req.Domain, escapeLike(req.Domain))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, models.ErrorResponse("保存失败"))
+		return
+	}
 
 	// 更新 wp-config.php
 	var webRoot string
-	db.QueryRow("SELECT web_root FROM websites WHERE domain = ? OR (char(10) || aliases || char(10)) LIKE ('%' || char(10) || ? || char(10) || '%')", req.Domain, req.Domain).Scan(&webRoot)
+	db.QueryRow("SELECT web_root FROM websites WHERE domain = ? OR (char(10) || aliases || char(10)) LIKE ('%' || char(10) || ? || char(10) || '%') ESCAPE '\\'", req.Domain, escapeLike(req.Domain)).Scan(&webRoot)
 	if webRoot != "" {
 		opts := executor.WPOptimizations{
 			DisableUpdates:     req.DisableWPUpdates,
@@ -1213,9 +1234,9 @@ func (h *CacheHelperHandler) UpdateOptimizerSettings(c *gin.Context) {
 	// FastCGI 配置变化时重载 Nginx
 	if oldFCacheEnabled != fcEnabled || oldFCacheTTL != req.TTL {
 		var siteID int
-		db.QueryRow("SELECT id FROM websites WHERE domain = ? OR (char(10) || aliases || char(10)) LIKE ('%' || char(10) || ? || char(10) || '%')", req.Domain, req.Domain).Scan(&siteID)
+		db.QueryRow("SELECT id FROM websites WHERE domain = ? OR (char(10) || aliases || char(10)) LIKE ('%' || char(10) || ? || char(10) || '%') ESCAPE '\\'", req.Domain, escapeLike(req.Domain)).Scan(&siteID)
 		if siteID > 0 {
-			go executor.RegenerateSiteNginx(siteID)
+			executor.GoSafe(func() { executor.RegenerateSiteNginx(siteID) })
 		}
 	}
 

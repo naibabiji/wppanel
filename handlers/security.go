@@ -77,7 +77,7 @@ func (h *SecurityHandler) UpdateSettings(c *gin.Context) {
 }
 
 func (h *SecurityHandler) RefreshWhitelist(c *gin.Context) {
-	go refreshOfficialWhitelist()
+	executor.GoSafe(refreshOfficialWhitelist)
 
 	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"message": "白名单刷新任务已提交"}))
 }

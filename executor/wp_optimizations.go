@@ -58,7 +58,7 @@ func ApplyWPOptimizations(webRoot string, opts WPOptimizations) error {
 		content = removeConstant(content, "WP_MEMORY_LIMIT")
 	}
 
-	return os.WriteFile(configPath, []byte(content), 0644)
+	return os.WriteFile(configPath, []byte(content), 0600)
 }
 
 func constPattern(name string) *regexp.Regexp {

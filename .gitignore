@@ -25,3 +25,6 @@ setup.sh
 
 # Wrangler
 stats-worker/.wrangler/
+
+# Scratch
+scratch/

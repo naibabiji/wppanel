@@ -202,18 +202,12 @@ func (h *CronHandler) ViewLogs(c *gin.Context) {
 	}
 
 	logFile := "/www/server/panel/logs/cron.log"
-	data, err := os.ReadFile(logFile)
-	if err != nil {
+	content := tailFile(logFile, lines)
+	if content == "" {
 		c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"content": "（暂无执行记录）"}))
 		return
 	}
-
-	allLines := strings.Split(string(data), "\n")
-	if len(allLines) > lines {
-		allLines = allLines[len(allLines)-lines:]
-	}
-
-	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"content": strings.Join(allLines, "\n")}))
+	c.JSON(http.StatusOK, models.SuccessResponse(gin.H{"content": content}))
 }
 
 func (h *CronHandler) Run(c *gin.Context) {

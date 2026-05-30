@@ -6,6 +6,7 @@ import (
 	"html"
 	"net"
 	"net/smtp"
+	"strings"
 
 	"github.com/naibabiji/wp-panel/database"
 )
@@ -133,6 +134,8 @@ func authAndSend(client *smtp.Client, cfg *SMTPConfig, to, msg string) error {
 }
 
 func buildMessage(from, to, subject, body string) string {
+	subject = strings.NewReplacer("\r", "", "\n", "").Replace(subject)
+	to = strings.NewReplacer("\r", "", "\n", "").Replace(to)
 	return fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: %s\r\nMIME-Version: 1.0\r\nContent-Type: text/html; charset=UTF-8\r\n\r\n%s",
 		from, to, subject, body)
 }

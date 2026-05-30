@@ -442,7 +442,7 @@ func (h *FileHandler) UploadComplete(c *gin.Context) {
 	}
 
 	tmpDestPath := destPath + ".uploading-" + uploadID
-	dst, err := os.Create(tmpDestPath)
+	dst, err := os.OpenFile(tmpDestPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse("创建文件失败"))
 		return
@@ -786,6 +786,10 @@ func (h *FileHandler) Compress(c *gin.Context) {
 
 	zipName := info.Name() + ".zip"
 	zipPath := filepath.Join(filepath.Dir(fullPath), zipName)
+	if !isPathWithin(basePath, zipPath) {
+		c.JSON(http.StatusForbidden, models.ErrorResponse("压缩文件名非法"))
+		return
+	}
 	zipFile, err := os.Create(zipPath)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, models.ErrorResponse("创建压缩文件失败"))

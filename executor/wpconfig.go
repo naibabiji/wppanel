@@ -28,7 +28,7 @@ func FixWPConfigCredentials(webRoot, dbName, dbUser string) error {
 		return fmt.Errorf("未找到 DB_USER 定义，wp-config.php 可能格式异常")
 	}
 
-	if err := os.WriteFile(configPath, []byte(userUpdated), 0644); err != nil {
+	if err := os.WriteFile(configPath, []byte(userUpdated), 0600); err != nil {
 		return fmt.Errorf("写入 wp-config.php 失败: %w", err)
 	}
 	return nil
