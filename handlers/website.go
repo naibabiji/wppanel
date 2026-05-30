@@ -909,13 +909,13 @@ func (h *WebsiteHandler) SaveWPOptimizations(c *gin.Context) {
 	db.QueryRow("SELECT web_root FROM websites WHERE id = ?", id).Scan(&webRoot)
 	if webRoot != "" {
 		opts := executor.WPOptimizations{
-				DisableUpdates:    req.DisableWPUpdates,
-				DisableFileEditing: req.DisableFileEditing,
-				WPDebug:           req.WPDebugEnabled,
-				WPPostRevisions:   req.WPPostRevisions,
-				WPMemoryLimit:     req.WPMemoryLimit,
-			}
-			if err := executor.ApplyWPOptimizations(webRoot, opts); err != nil {
+			DisableUpdates:     req.DisableWPUpdates,
+			DisableFileEditing: req.DisableFileEditing,
+			WPDebug:            req.WPDebugEnabled,
+			WPPostRevisions:    req.WPPostRevisions,
+			WPMemoryLimit:      req.WPMemoryLimit,
+		}
+		if err := executor.ApplyWPOptimizations(webRoot, opts); err != nil {
 			log.Printf("ApplyWPOptimizations 失败 (site %d): %v", id, err)
 		}
 	}
@@ -1113,7 +1113,7 @@ func (h *CacheHelperHandler) FindByDomain(c *gin.Context) {
 	}
 
 	var siteID, fcacheEnabled, fcacheTTL, disableUpdates, disableEditing, xmlrpcEnabled, wpDebugEnabled, wpPostRevisions int
-		var wpMemoryLimit string
+	var wpMemoryLimit string
 	err := database.GetDB().QueryRow(
 		"SELECT id, fastcgi_cache_enabled, fastcgi_cache_ttl, disable_wp_updates, disable_file_editing, xmlrpc_enabled, wp_debug_enabled, wp_post_revisions, wp_memory_limit FROM websites WHERE domain = ? OR (char(10) || aliases || char(10)) LIKE ('%' || char(10) || ? || char(10) || '%')",
 		domain, domain,
@@ -1199,13 +1199,13 @@ func (h *CacheHelperHandler) UpdateOptimizerSettings(c *gin.Context) {
 	db.QueryRow("SELECT web_root FROM websites WHERE domain = ? OR (char(10) || aliases || char(10)) LIKE ('%' || char(10) || ? || char(10) || '%')", req.Domain, req.Domain).Scan(&webRoot)
 	if webRoot != "" {
 		opts := executor.WPOptimizations{
-				DisableUpdates:    req.DisableWPUpdates,
-				DisableFileEditing: req.DisableFileEditing,
-				WPDebug:           req.WPDebugEnabled,
-				WPPostRevisions:   req.WPPostRevisions,
-				WPMemoryLimit:     req.WPMemoryLimit,
-			}
-			if err := executor.ApplyWPOptimizations(webRoot, opts); err != nil {
+			DisableUpdates:     req.DisableWPUpdates,
+			DisableFileEditing: req.DisableFileEditing,
+			WPDebug:            req.WPDebugEnabled,
+			WPPostRevisions:    req.WPPostRevisions,
+			WPMemoryLimit:      req.WPMemoryLimit,
+		}
+		if err := executor.ApplyWPOptimizations(webRoot, opts); err != nil {
 			log.Printf("ApplyWPOptimizations 失败 (site %s): %v", req.Domain, err)
 		}
 	}

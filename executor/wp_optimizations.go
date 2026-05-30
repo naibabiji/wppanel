@@ -8,6 +8,9 @@ import (
 	"strings"
 )
 
+// validMemoryLimit 匹配合法的 PHP 内存限制值，如 128M、256M、1G、512K 或纯数字字节数。
+var validMemoryLimit = regexp.MustCompile(`^\d+[KMG]?$`)
+
 type WPOptimizations struct {
 	DisableUpdates    bool
 	DisableFileEditing bool
@@ -29,7 +32,7 @@ func ApplyWPOptimizations(webRoot string, opts WPOptimizations) error {
 	content = applyBoolConstant(content, "AUTOMATIC_UPDATER_DISABLED", opts.DisableUpdates)
 	content = applyBoolConstant(content, "DISALLOW_FILE_EDIT", opts.DisableFileEditing)
 
-	// WP_DEBUG: 开启时写入 debug 三件套，关闭时恢复 false + 清理 LOG/DISPLAY
+	// WP_DEBUG: 开启时写入 debug 三件套，关闭时移除 WP_DEBUG 及其关联常量（移除后 WordPress 默认 false）
 	content = applyBoolConstant(content, "WP_DEBUG", opts.WPDebug)
 	if opts.WPDebug {
 		content = applyBoolConstant(content, "WP_DEBUG_LOG", true)
@@ -46,9 +49,11 @@ func ApplyWPOptimizations(webRoot string, opts WPOptimizations) error {
 		content = removeConstant(content, "WP_POST_REVISIONS")
 	}
 
-	// WP_MEMORY_LIMIT: 空字符串不处理
+	// WP_MEMORY_LIMIT: 空字符串移除；非法格式拒绝写入（防止单引号等字符破坏 php 文件）
 	if opts.WPMemoryLimit != "" {
-		content = applyStringConstant(content, "WP_MEMORY_LIMIT", opts.WPMemoryLimit)
+		if validMemoryLimit.MatchString(strings.ToUpper(opts.WPMemoryLimit)) {
+			content = applyStringConstant(content, "WP_MEMORY_LIMIT", strings.ToUpper(opts.WPMemoryLimit))
+		}
 	} else {
 		content = removeConstant(content, "WP_MEMORY_LIMIT")
 	}
