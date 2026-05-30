@@ -207,7 +207,7 @@
             <div class="flex items-center space-x-3 mb-3" x-show="site.site_type === 'wordpress'">
                 <label class="text-sm text-gray-300">
                     <span>文章修订版本数</span>
-                    <input type="number" x-model="wpPostRevisions" class="input-field w-24 text-sm py-1 ml-2" min="-1" placeholder="默认">
+                    <input type="number" :value="wpPostRevisions >= 0 ? wpPostRevisions : ''" @input="wpPostRevisions = $event.target.value === '' ? -1 : parseInt($event.target.value)" class="input-field w-24 text-sm py-1 ml-2" placeholder="默认">
                 </label>
                 <span class="text-xs text-gray-500">留空=WordPress默认（无限制），0=不保留修订，建议设3~5减少数据库占用</span>
             </div>
@@ -716,7 +716,7 @@ function websiteDetail() {
                         disable_file_editing: this.disableFileEditing,
                         xmlrpc_enabled: this.xmlrpcEnabled,
                         wp_debug_enabled: this.wpDebug,
-                        wp_post_revisions: (this.wpPostRevisions === '' || this.wpPostRevisions === null) ? -1 : parseInt(this.wpPostRevisions),
+                        wp_post_revisions: this.wpPostRevisions,
                         wp_memory_limit: this.wpMemoryLimit
                     }
                 });
